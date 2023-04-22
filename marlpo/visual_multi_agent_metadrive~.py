@@ -2,10 +2,7 @@ from ray.rllib.algorithms import Algorithm
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.tune.registry import register_trainable, register_env
 
-try:
-    from env.multi_agent_metadrive import RLlibMultiAgentMetaDrive as MultiAgentMetaDriveEnv
-except:
-    from .env._multi_agent_metadrive import RLlibMultiAgentMetaDrive as MultiAgentMetaDriveEnv
+from .env._multi_agent_metadrive import RLlibMultiAgentMetaDrive as MultiAgentMetaDriveEnv
     
 
 

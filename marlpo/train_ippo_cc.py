@@ -10,6 +10,7 @@ from metadrive import (
 
 # from copo.torch_copo.algo_ippo import IPPOTrainer
 # from copo.torch_copo.utils.callbacks import MultiAgentDrivingCallbacks
+from marlpo.algo_ippo import IPPOTrainer
 from marlpo.train.train import train
 from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
 # from copo.torch_copo.utils.utils import get_train_parser
@@ -17,7 +18,8 @@ from marlpo.callbacks import MultiAgentDrivingCallbacks
 
 TEST = False
 # TEST = True
-SCENE = "intersection"
+# SCENE = "intersection"
+SCENE = "roundabout"
 
 if __name__ == "__main__":
     # ===== Environment =====
@@ -39,8 +41,7 @@ if __name__ == "__main__":
     #     get_rllib_compatible_new_gymnasium_api_env(MultiAgentParkingLotEnv),
     # ])
 
-    if TEST:
-        SCENE = "roundabout" 
+    if TEST: SCENE = "roundabout" 
 
     env = get_rllib_compatible_new_gymnasium_api_env(scenes[SCENE])
 
@@ -53,7 +54,8 @@ if __name__ == "__main__":
         # "manual_control": True,
         # crash_done=True,
         # "agent_policy": ManualControllableIDMPolicy
-        start_seed=tune.grid_search([5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000])
+        # start_seed=tune.grid_search([5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000])
+        start_seed=tune.grid_search([12000])
     )
     if TEST:
         env_config["start_seed"] = 5000
@@ -68,7 +70,7 @@ if __name__ == "__main__":
             "timesteps_total": 1e6,
             # "episode_reward_mean": 1000,
         }
-        exp_name = f"IPPO_{SCENE.capitalize()}_8seeds"
+        exp_name = f"IPPO_Central_Value_{SCENE.capitalize()}_8seeds"
         num_rollout_workers = 2
     
 
@@ -104,10 +106,10 @@ if __name__ == "__main__":
 
     # === Launch training ===
     '''
-    使用原生RLlib的PPO算法
+    使用CoPO修改过的PPO算法
     '''
     train(
-        "PPO",
+        IPPOTrainer,
         config=ppo_config,
         stop=stop,
         exp_name=exp_name,

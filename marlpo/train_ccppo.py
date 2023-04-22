@@ -10,6 +10,8 @@ from metadrive import (
 
 # from copo.torch_copo.algo_ippo import IPPOTrainer
 # from copo.torch_copo.utils.callbacks import MultiAgentDrivingCallbacks
+from marlpo.algo_ccppo import CCPPOConfig, CCPPOTrainer, get_ccppo_env
+
 from marlpo.train.train import train
 from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
 # from copo.torch_copo.utils.utils import get_train_parser
@@ -17,7 +19,9 @@ from marlpo.callbacks import MultiAgentDrivingCallbacks
 
 TEST = False
 # TEST = True
-SCENE = "intersection"
+# SCENE = "intersection"
+SCENE = "roundabout"
+seeds = [5000, 6000, 7000, 8000, ]
 
 if __name__ == "__main__":
     # ===== Environment =====
@@ -39,10 +43,10 @@ if __name__ == "__main__":
     #     get_rllib_compatible_new_gymnasium_api_env(MultiAgentParkingLotEnv),
     # ])
 
-    if TEST:
-        SCENE = "roundabout" 
+    if TEST: SCENE = "roundabout" 
 
-    env = get_rllib_compatible_new_gymnasium_api_env(scenes[SCENE])
+    # ccppo
+    env = get_ccppo_env(scenes[SCENE])
 
     # ===== Environmental Setting =====
 
@@ -53,10 +57,13 @@ if __name__ == "__main__":
         # "manual_control": True,
         # crash_done=True,
         # "agent_policy": ManualControllableIDMPolicy
-        start_seed=tune.grid_search([5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000])
+        # start_seed=tune.grid_search([5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000])
+        start_seed=tune.grid_search(seeds)
     )
     if TEST:
-        env_config["start_seed"] = 5000
+        env_config.update(dict(
+            start_seed=5000
+        ))
 
     if TEST:
         stop = {"training_iteration": 1}
@@ -68,14 +75,14 @@ if __name__ == "__main__":
             "timesteps_total": 1e6,
             # "episode_reward_mean": 1000,
         }
-        exp_name = f"IPPO_{SCENE.capitalize()}_8seeds"
-        num_rollout_workers = 2
+        exp_name = f"CCPPO_{SCENE.capitalize()}_{len(seeds)}seeds"
+        num_rollout_workers = 4
     
 
-    # ===== Algo Setting =====
+    # === Algo Setting ===
 
     ppo_config = (
-        PPOConfig()
+        CCPPOConfig()
         .framework('torch')
         .resources(num_gpus=0)
         .rollouts(
@@ -90,6 +97,11 @@ if __name__ == "__main__":
             sgd_minibatch_size=512,
             num_sgd_iter=5,
             lambda_=0.95,
+            # model=dict(
+            #     custom_model_config={
+                    
+            #     }
+            # ),
         )
         .multi_agent(
         )
@@ -99,15 +111,22 @@ if __name__ == "__main__":
         #     evaluation_config=dict(env_config=dict(environment_num=200, start_seed=0)),
         #     evaluation_num_workers=1,)
         .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
+        .update_from_dict(dict(
+            counterfactual=True,
+            # fuse_mode="concat",
+            fuse_mode=tune.grid_search(["concat"]),
+            # fuse_mode=tune.grid_search(["mf", "concat"]),
+            mf_nei_distance=10,
+            model={"custom_model": "cc_model"},
+        ))
     )
-
 
     # === Launch training ===
     '''
-    使用原生RLlib的PPO算法
+    使用CoPO修改过的PPO算法
     '''
     train(
-        "PPO",
+        CCPPOTrainer,
         config=ppo_config,
         stop=stop,
         exp_name=exp_name,

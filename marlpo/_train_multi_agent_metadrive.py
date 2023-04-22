@@ -7,10 +7,7 @@ from ray.rllib.utils.gym import convert_old_gym_space_to_gymnasium_space, check_
 
 from callbacks import MultiAgentDrivingCallbacks
 
-try:
-    from env.multi_agent_metadrive import RLlibMultiAgentMetaDrive as MultiAgentMetaDriveEnv
-except:
-    from .env._multi_agent_metadrive import RLlibMultiAgentMetaDrive as MultiAgentMetaDriveEnv
+from .env._multi_agent_metadrive import RLlibMultiAgentMetaDrive as MultiAgentMetaDriveEnv
     
 
 def env_creator(env_config):

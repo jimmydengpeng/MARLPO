@@ -1434,5 +1434,5 @@ metadrive*/
 log/
 ptz*/
 test*.*
-_*
+_*.*
 experiments/

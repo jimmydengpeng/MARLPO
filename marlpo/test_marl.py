@@ -17,4 +17,3 @@ sample_batch = worker.sample()
 print(sample_batch)
 print(pretty_print(sample_batch.__dict__))
 print(sample_batch.agent_steps())
-

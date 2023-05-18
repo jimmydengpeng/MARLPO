@@ -72,7 +72,7 @@ if __name__ == "__main__":
         exp_name = "TEST"
         num_rollout_workers = 1
     else:
-        stop = {"timesteps_total": 1e7}
+        stop = {"timesteps_total": 1e6}
         if len(seeds) == 1:
             exp_name = f"ARIPPO_V0_{SCENE.capitalize()}_seed={seeds[0]}_NumAgentsSearch_{num_agents}agents"
         else:

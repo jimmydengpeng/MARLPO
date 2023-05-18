@@ -21,6 +21,9 @@ TEST = False
 # SCENE = "intersection"
 SCENE = "roundabout"
 
+# seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+seeds = [5000]
+
 if __name__ == "__main__":
     # ===== Environment =====
     scenes = {
@@ -45,17 +48,17 @@ if __name__ == "__main__":
 
     env = get_rllib_compatible_new_gymnasium_api_env(scenes[SCENE])
 
-    # ===== Environmental Setting =====
-
+    # === Environmental Setting ===
+    num_agents = 4
     env_config = dict(
         use_render=False,
-        # num_agents=40,
+        num_agents=num_agents,
         return_single_space=True,
         # "manual_control": True,
         # crash_done=True,
         # "agent_policy": ManualControllableIDMPolicy
         # start_seed=tune.grid_search([5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000])
-        start_seed=tune.grid_search([12000])
+        start_seed=tune.grid_search(seeds)
     )
     if TEST:
         env_config["start_seed"] = 5000
@@ -70,8 +73,12 @@ if __name__ == "__main__":
             "timesteps_total": 1e6,
             # "episode_reward_mean": 1000,
         }
-        exp_name = f"IPPO_Central_Value_{SCENE.capitalize()}_8seeds"
-        num_rollout_workers = 2
+        if len(seeds) == 1:
+            exp_name = f"IPPO_CC_{SCENE.capitalize()}_seed={seeds[0]}_{num_agents}agents"
+        else:
+            exp_name = f"IPPO__CC_{SCENE.capitalize()}_{len(seeds)}seeds_{num_agents}agents"
+
+        num_rollout_workers = 16
     
 
     # ===== Algo Setting =====
@@ -79,10 +86,12 @@ if __name__ == "__main__":
     ppo_config = (
         PPOConfig()
         .framework('torch')
-        .resources(num_gpus=0)
+        .resources(
+            num_gpus=1,
+            num_gpus_per_learner_worker=1,
+        )
         .rollouts(
             num_rollout_workers=num_rollout_workers,
-            # rollout_fragment_length=200 # can get from algo?
         )
         .callbacks(MultiAgentDrivingCallbacks)
         .training(

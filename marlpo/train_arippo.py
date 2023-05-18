@@ -1,6 +1,4 @@
-from metadrive.envs.marl_envs import MultiAgentRoundaboutEnv, MultiAgentIntersectionEnv
 from ray import tune
-
 from ray.rllib.algorithms.ppo import PPOConfig
 
 from metadrive import (
@@ -8,19 +6,30 @@ from metadrive import (
     MultiAgentBottleneckEnv, MultiAgentParkingLotEnv
 )
 
-# from copo.torch_copo.algo_ippo import IPPOTrainer
 # from copo.torch_copo.utils.callbacks import MultiAgentDrivingCallbacks
+from marlpo.algo_arippo import ARIPPOConfig, ARIPPOTrainer
 from marlpo.train.train import train
 from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
 # from copo.torch_copo.utils.utils import get_train_parser
 from marlpo.callbacks import MultiAgentDrivingCallbacks
 
+    
 TEST = False
-TEST = True
-SCENE = "intersection"
+# TEST = True
+
+TRAIN_ALL_ENV = False
+
+SCENE = "roundabout" # scene to train { intersection, }
+if TEST: 
+    SCENE = "roundabout" 
+
+# seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+seeds = [5000]
+
 
 if __name__ == "__main__":
-    # ===== Environment =====
+
+    # === Environment ===
     scenes = {
         "roundabout": MultiAgentRoundaboutEnv,
         "intersection": MultiAgentIntersectionEnv,
@@ -29,53 +38,53 @@ if __name__ == "__main__":
         "parkinglot": MultiAgentParkingLotEnv,
     }
 
-    ''' for Multi-Scene training at once! '''
+    # for Multi-Scene training at once!
     # We can grid-search the environmental parameters!
-    # envs = tune.grid_search([
-    #     get_rllib_compatible_new_gymnasium_api_env(MultiAgentRoundaboutEnv),
-    #     get_rllib_compatible_new_gymnasium_api_env(MultiAgentIntersectionEnv),
-    #     get_rllib_compatible_new_gymnasium_api_env(MultiAgentTollgateEnv),
-    #     get_rllib_compatible_new_gymnasium_api_env(MultiAgentBottleneckEnv),
-    #     get_rllib_compatible_new_gymnasium_api_env(MultiAgentParkingLotEnv),
-    # ])
+    if TRAIN_ALL_ENV:
+        env = tune.grid_search([
+            get_rllib_compatible_new_gymnasium_api_env(MultiAgentRoundaboutEnv),
+            get_rllib_compatible_new_gymnasium_api_env(MultiAgentIntersectionEnv),
+            get_rllib_compatible_new_gymnasium_api_env(MultiAgentTollgateEnv),
+            get_rllib_compatible_new_gymnasium_api_env(MultiAgentBottleneckEnv),
+            get_rllib_compatible_new_gymnasium_api_env(MultiAgentParkingLotEnv),
+        ])
+    else:
+        # Convert MetdDriveEnv to RLlib compatible env with gymnasium API
+        env = get_rllib_compatible_new_gymnasium_api_env(scenes[SCENE])
 
-    if TEST:
-        SCENE = "roundabout" 
 
-    env = get_rllib_compatible_new_gymnasium_api_env(scenes[SCENE])
-
-    # ===== Environmental Setting =====
-
+    # === Environmental Setting ===
+    # num_agents = tune.grid_search([4, 8, 16, 24]) 
+    num_agents = 16
     env_config = dict(
         use_render=False,
-        # num_agents=40,
+        num_agents=num_agents,
         return_single_space=True,
+        start_seed=tune.grid_search(seeds)
         # "manual_control": True,
         # crash_done=True,
         # "agent_policy": ManualControllableIDMPolicy
-        start_seed=tune.grid_search([5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000])
     )
-    if TEST:
-        env_config["start_seed"] = 5000
 
     if TEST:
+        env_config["start_seed"] = 5000
         stop = {"training_iteration": 1}
         exp_name = "TEST"
         num_rollout_workers = 1
     else:
-        stop = {
-            # "episodes_total": 60000,
-            "timesteps_total": 1e6,
-            # "episode_reward_mean": 1000,
-        }
-        exp_name = f"IPPO_{SCENE.capitalize()}_8seeds"
-        num_rollout_workers = 2
+        stop = {"timesteps_total": 1e6}
+        if len(seeds) == 1:
+            exp_name = f"ARIPPO_V0_{SCENE.capitalize()}_seed={seeds[0]}_NumAgentsSearch_{num_agents}agents"
+        else:
+            exp_name = f"ARIPPO_V0_{SCENE.capitalize()}_{len(seeds)}seeds_NumAgentsSearch_{num_agents}agents"
+
+        num_rollout_workers = 6
     
 
-    # ===== Algo Setting =====
+    # === Algo Setting ===
 
     ppo_config = (
-        PPOConfig()
+        ARIPPOConfig()
         .framework('torch')
         .resources(num_gpus=0)
         .rollouts(
@@ -90,6 +99,7 @@ if __name__ == "__main__":
             sgd_minibatch_size=512,
             num_sgd_iter=5,
             lambda_=0.95,
+            model={"custom_model_config": {'n_actions': num_agents-1}}
         )
         .multi_agent(
         )
@@ -103,11 +113,10 @@ if __name__ == "__main__":
 
 
     # === Launch training ===
-    '''
-    使用原生RLlib的PPO算法
-    '''
+    from marlpo.algo_ippo import IPPOTrainer
     train(
-        "PPO",
+        ARIPPOTrainer,
+        # IPPOTrainer,
         config=ppo_config,
         stop=stop,
         exp_name=exp_name,

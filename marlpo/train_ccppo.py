@@ -10,18 +10,26 @@ from metadrive import (
 
 # from copo.torch_copo.algo_ippo import IPPOTrainer
 # from copo.torch_copo.utils.callbacks import MultiAgentDrivingCallbacks
-from marlpo.algo_ccppo import CCPPOConfig, CCPPOTrainer, get_ccppo_env
+from marlpo.algo_ccppo import ARPPOConfig, ARPPOTrainer, get_ccppo_env
 
 from marlpo.train.train import train
 from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
 # from copo.torch_copo.utils.utils import get_train_parser
 from marlpo.callbacks import MultiAgentDrivingCallbacks
 
-TEST = False
+TEST = False # <~~ Toggle TEST mod here! 
 # TEST = True
+
+# === Training Scene ===
+# SCENE = "roundabout"
 # SCENE = "intersection"
-SCENE = "roundabout"
-seeds = [5000, 6000, 7000, 8000, ]
+SCENE = "tollgate"
+
+if TEST: SCENE = "roundabout" 
+
+# === Env Seeds ===
+# seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+seeds = [5000, 6000, 7000, 8000]
 
 if __name__ == "__main__":
     # ===== Environment =====
@@ -43,8 +51,6 @@ if __name__ == "__main__":
     #     get_rllib_compatible_new_gymnasium_api_env(MultiAgentParkingLotEnv),
     # ])
 
-    if TEST: SCENE = "roundabout" 
-
     # ccppo
     env = get_ccppo_env(scenes[SCENE])
 
@@ -60,21 +66,13 @@ if __name__ == "__main__":
         # start_seed=tune.grid_search([5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000])
         start_seed=tune.grid_search(seeds)
     )
-    if TEST:
-        env_config.update(dict(
-            start_seed=5000
-        ))
-
+ 
     if TEST:
         stop = {"training_iteration": 1}
         exp_name = "TEST"
         num_rollout_workers = 1
     else:
-        stop = {
-            # "episodes_total": 60000,
-            "timesteps_total": 1e6,
-            # "episode_reward_mean": 1000,
-        }
+        stop = {"timesteps_total": 1e6}
         exp_name = f"CCPPO_{SCENE.capitalize()}_{len(seeds)}seeds"
         num_rollout_workers = 4
     
@@ -82,7 +80,7 @@ if __name__ == "__main__":
     # === Algo Setting ===
 
     ppo_config = (
-        CCPPOConfig()
+        ARPPOConfig()
         .framework('torch')
         .resources(num_gpus=0)
         .rollouts(
@@ -103,8 +101,8 @@ if __name__ == "__main__":
             #     }
             # ),
         )
-        .multi_agent(
-        )
+        # .multi_agent(
+        # )
         # .evaluation(
         #     evaluation_interval=2,
         #     evaluation_duration=40,
@@ -116,8 +114,8 @@ if __name__ == "__main__":
             # fuse_mode="concat",
             fuse_mode=tune.grid_search(["concat"]),
             # fuse_mode=tune.grid_search(["mf", "concat"]),
-            mf_nei_distance=10,
-            model={"custom_model": "cc_model"},
+            # mf_nei_distance=10,
+            # model={"custom_model": "cc_model"}, # if redundant?
         ))
     )
 
@@ -126,7 +124,7 @@ if __name__ == "__main__":
     使用CoPO修改过的PPO算法
     '''
     train(
-        CCPPOTrainer,
+        ARPPOTrainer,
         config=ppo_config,
         stop=stop,
         exp_name=exp_name,

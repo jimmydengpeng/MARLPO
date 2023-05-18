@@ -4,6 +4,7 @@ import numpy as np
 
 from ray.rllib.algorithms.callbacks import DefaultCallbacks
 from ray.rllib.env import BaseEnv
+from ray.rllib.evaluation import RolloutWorker
 from ray.rllib.evaluation.episode import Episode
 from ray.rllib.evaluation.episode_v2 import EpisodeV2
 from ray.rllib.policy import Policy
@@ -21,6 +22,12 @@ from colorlog import logger
 
 
 class MultiAgentDrivingCallbacks(DefaultCallbacks):
+
+    def on_sample_end(self, *, worker: RolloutWorker, samples: SampleBatch, **kwargs) -> None:
+        actions = samples['default_policy']['actions']
+        print('[on_sample_end] actions:', len(actions), actions, sep='\n')
+
+
     def on_episode_start(
         self,
         *,

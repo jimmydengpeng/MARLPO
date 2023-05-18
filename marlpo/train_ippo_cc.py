@@ -101,6 +101,7 @@ if __name__ == "__main__":
             sgd_minibatch_size=512,
             num_sgd_iter=5,
             lambda_=0.95,
+            model={"custom_model_config": {'n_actions': num_agents-1}}
         )
         .multi_agent(
         )

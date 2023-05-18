@@ -12,6 +12,7 @@ from marlpo.train.train import train
 from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
 # from copo.torch_copo.utils.utils import get_train_parser
 from marlpo.callbacks import MultiAgentDrivingCallbacks
+from marlpo.utils.utils import get_other_training_resources
 
     
 TEST = False
@@ -78,7 +79,7 @@ if __name__ == "__main__":
         else:
             exp_name = f"ARIPPO_V0_{SCENE.capitalize()}_{len(seeds)}seeds_NumAgentsSearch_{num_agents}agents"
 
-        num_rollout_workers = 10
+        num_rollout_workers = 6
     
 
     # === Algo Setting ===
@@ -87,12 +88,10 @@ if __name__ == "__main__":
         ARIPPOConfig()
         .framework('torch')
         .resources(
-            num_gpus=1,
-            num_gpus_per_learner_worker=1,
+            get_other_training_resources()
         )
         .rollouts(
             num_rollout_workers=num_rollout_workers,
-            # rollout_fragment_length=200 # can get from algo?
         )
         .callbacks(MultiAgentDrivingCallbacks)
         .training(

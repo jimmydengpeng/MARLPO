@@ -1,6 +1,6 @@
 import sys
 
-from rich import inspect
+from rich import print, inspect
 import rich
 rich.get_console().width -= 30
 

@@ -31,7 +31,7 @@ from ray.rllib.utils.typing import ModelConfigDict
 
 from marlpo.model_arippo import ARFullyConnectedModel
 
-from utils.debug_utils import log, inspect
+from utils.utils import log, inspect
 
 torch, nn = try_import_torch()
 

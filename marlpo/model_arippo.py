@@ -8,7 +8,7 @@ from ray.rllib.utils.annotations import override
 from ray.rllib.utils.framework import try_import_torch
 from ray.rllib.utils.typing import Dict, TensorType, List, Tuple, ModelConfigDict
 
-from utils.debug_utils import log, inspect
+from utils.utils import log, inspect
 
 torch, nn = try_import_torch()
 

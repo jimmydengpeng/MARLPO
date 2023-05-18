@@ -55,7 +55,7 @@ if __name__ == "__main__":
 
     # === Environmental Setting ===
     # num_agents = tune.grid_search([4, 8, 16, 24]) 
-    num_agents = 16
+    num_agents = 4
     env_config = dict(
         use_render=False,
         num_agents=num_agents,
@@ -72,13 +72,13 @@ if __name__ == "__main__":
         exp_name = "TEST"
         num_rollout_workers = 1
     else:
-        stop = {"timesteps_total": 1e6}
+        stop = {"timesteps_total": 1e7}
         if len(seeds) == 1:
             exp_name = f"ARIPPO_V0_{SCENE.capitalize()}_seed={seeds[0]}_NumAgentsSearch_{num_agents}agents"
         else:
             exp_name = f"ARIPPO_V0_{SCENE.capitalize()}_{len(seeds)}seeds_NumAgentsSearch_{num_agents}agents"
 
-        num_rollout_workers = 6
+        num_rollout_workers = 10
     
 
     # === Algo Setting ===
@@ -86,7 +86,10 @@ if __name__ == "__main__":
     ppo_config = (
         ARIPPOConfig()
         .framework('torch')
-        .resources(num_gpus=0)
+        .resources(
+            num_gpus=1,
+            num_gpus_per_learner_worker=1,
+        )
         .rollouts(
             num_rollout_workers=num_rollout_workers,
             # rollout_fragment_length=200 # can get from algo?

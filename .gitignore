@@ -1436,3 +1436,4 @@ ptz*/
 test*.*
 _*.*
 experiments/
+exp_results/

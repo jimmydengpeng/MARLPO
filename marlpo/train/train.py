@@ -51,6 +51,7 @@ def train(
         trainer,
         run_config=air.RunConfig(
             name=exp_name,
+            local_dir="./exp_results",
             stop=stop,
             checkpoint_config=checkpoint_config,
             verbose=verbose,

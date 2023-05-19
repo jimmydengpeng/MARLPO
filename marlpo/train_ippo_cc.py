@@ -15,7 +15,7 @@ from marlpo.train.train import train
 from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
 # from copo.torch_copo.utils.utils import get_train_parser
 from marlpo.callbacks import MultiAgentDrivingCallbacks
-from marlpo.utils.utils import get_other_training_resources
+from marlpo.utils.utils import get_other_training_resources, get_num_workers
 
 TEST = False
 # TEST = True
@@ -24,6 +24,9 @@ SCENE = "roundabout"
 
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
 seeds = [5000]
+
+EXP_SUFFIX = "_timesteps=1e7"
+
 
 if __name__ == "__main__":
     # ===== Environment =====
@@ -71,15 +74,15 @@ if __name__ == "__main__":
     else:
         stop = {
             # "episodes_total": 60000,
-            "timesteps_total": 1e6,
+            "timesteps_total": 1e7,
             # "episode_reward_mean": 1000,
         }
         if len(seeds) == 1:
-            exp_name = f"IPPO_CC_{SCENE.capitalize()}_seed={seeds[0]}_{num_agents}agents"
+            exp_name = f"IPPO_CC_{SCENE.capitalize()}_seed={seeds[0]}_{num_agents}agents"+EXP_SUFFIX
         else:
-            exp_name = f"IPPO__CC_{SCENE.capitalize()}_{len(seeds)}seeds_{num_agents}agents"
+            exp_name = f"IPPO_CC_{SCENE.capitalize()}_{len(seeds)}seeds_{num_agents}agents"+EXP_SUFFIX
 
-        num_rollout_workers = 6
+        num_rollout_workers = get_num_workers()
     
 
     # ===== Algo Setting =====

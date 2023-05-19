@@ -12,7 +12,7 @@ from marlpo.train.train import train
 from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
 # from copo.torch_copo.utils.utils import get_train_parser
 from marlpo.callbacks import MultiAgentDrivingCallbacks
-from marlpo.utils.utils import get_other_training_resources
+from marlpo.utils.utils import get_other_training_resources, get_num_workers
 
     
 TEST = False
@@ -56,7 +56,7 @@ if __name__ == "__main__":
 
     # === Environmental Setting ===
     # num_agents = tune.grid_search([4, 8, 16, 24]) 
-    num_agents = 4
+    num_agents = 16 #, 8, 16, 32, 40]
     env_config = dict(
         use_render=False,
         num_agents=num_agents,
@@ -73,13 +73,13 @@ if __name__ == "__main__":
         exp_name = "TEST"
         num_rollout_workers = 1
     else:
-        stop = {"timesteps_total": 1e6}
+        stop = {"timesteps_total": tune.grid_search([1e7, 1e8])}
         if len(seeds) == 1:
             exp_name = f"ARIPPO_V0_{SCENE.capitalize()}_seed={seeds[0]}_NumAgentsSearch_{num_agents}agents"
         else:
             exp_name = f"ARIPPO_V0_{SCENE.capitalize()}_{len(seeds)}seeds_NumAgentsSearch_{num_agents}agents"
 
-        num_rollout_workers = 6
+        num_rollout_workers = get_num_workers()
     
 
     # === Algo Setting ===
@@ -88,7 +88,7 @@ if __name__ == "__main__":
         ARIPPOConfig()
         .framework('torch')
         .resources(
-            get_other_training_resources()
+            **get_other_training_resources()
         )
         .rollouts(
             num_rollout_workers=num_rollout_workers,

@@ -18,8 +18,16 @@ def get_other_training_resources():
     elif sys.platform.startswith('linux'):
         # 1 GPU
         return dict(
-            num_gpus=1,
-            num_gpus_per_learner_worker=1,
+            num_gpus=0,
+            # num_gpus_per_learner_worker=,
         )
     else:
         return {}
+
+def get_num_workers():
+    if sys.platform.startswith('darwin'):
+        return 6
+    elif sys.platform.startswith('linux'):
+        return 10
+    else:
+        return 1

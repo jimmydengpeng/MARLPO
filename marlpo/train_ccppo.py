@@ -80,9 +80,9 @@ if __name__ == "__main__":
     else:
         stop = {"timesteps_total": 1e7}
         if len(seeds) == 1:
-            exp_name = f"CCPPO_{SCENE.capitalize()}_seed={seeds[0]}_{num_agents}agents"+EXP_SUFFIX
+            exp_name = f"CCPPO_{SCENE.capitalize()}_seed={seeds[0]}_{num_agents}agents"+"_"+EXP_SUFFIX
         else:
-            exp_name = f"CCPPO_{SCENE.capitalize()}_{len(seeds)}seeds_{num_agents}agents"+EXP_SUFFIX
+            exp_name = f"CCPPO_{SCENE.capitalize()}_{len(seeds)}seeds_{num_agents}agents"+"_"+EXP_SUFFIX
 
         num_rollout_workers = get_num_workers()
     

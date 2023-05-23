@@ -303,3 +303,13 @@ class ARIPPOTrainer(PPO):
         assert config["framework"] == "torch"
         return ARIPPOPolicy
 
+
+
+
+'''
+=== Change Log ===
+
+V0: 简单全连接Actor网络:
+    Obs + other_agents_actions 的简单拼接作为actor的输入
+
+'''

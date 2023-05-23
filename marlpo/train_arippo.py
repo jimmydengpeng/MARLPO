@@ -20,14 +20,14 @@ TEST = False
 
 TRAIN_ALL_ENV = False
 
-SCENE = "roundabout" # scene to train { intersection, }
+SCENE = "intersection" # scene to train { roundabout, intersection, }
 if TEST: 
     SCENE = "roundabout" 
 
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-seeds = [5000]
+seeds = [8000]
 
-EXP_SUFFIX = "_timesteps=1e7"
+EXP_SUFFIX = "maxsteps=1e7"
 
 
 if __name__ == "__main__":
@@ -85,7 +85,6 @@ if __name__ == "__main__":
     
 
     # === Algo Setting ===
-
     ppo_config = (
         ARIPPOConfig()
         .framework('torch')
@@ -105,13 +104,8 @@ if __name__ == "__main__":
             lambda_=0.95,
             model={"custom_model_config": {'n_actions': num_agents-1}}
         )
-        .multi_agent(
-        )
-        # .evaluation(
-        #     evaluation_interval=2,
-        #     evaluation_duration=40,
-        #     evaluation_config=dict(env_config=dict(environment_num=200, start_seed=0)),
-        #     evaluation_num_workers=1,)
+        # .multi_agent(
+        # )
         .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
     )
 

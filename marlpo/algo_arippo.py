@@ -224,6 +224,7 @@ class ARIPPOPolicy(PPOTorchPolicy):
                     action, _logp = self.exploration.get_exploration_action(
                         action_distribution=_action_dist, timestep=timestep, explore=explore
                     )
+                    # print("agent_id:", agent_id, "action", action)
                     actions.append(action)
                     assert isinstance(action, torch.Tensor)
                     if agent_id < len(actions_input): # TODO
@@ -238,7 +239,7 @@ class ARIPPOPolicy(PPOTorchPolicy):
                 # logp = np.array(logp_)
                 extra_fetches[SampleBatch.VF_PREDS] = torch.squeeze(torch.stack(vf_preds), 1)
                 # print('extra_fetches ==>', extra_fetches)
-
+                # print('[ARIPPOPolicy] sampled actions:', actions)
 
             if not (
                 isinstance(dist_class, functools.partial)

@@ -10,29 +10,34 @@ from metadrive import (
 
 # from copo.torch_copo.algo_ippo import IPPOTrainer
 # from copo.torch_copo.utils.callbacks import MultiAgentDrivingCallbacks
-from marlpo.algo_ccppo import ARPPOConfig, ARPPOTrainer, get_ccppo_env
+from marlpo.algo_ccppo import CCPPOConfig, CCPPOTrainer, get_ccppo_env
 
 from marlpo.train.train import train
 from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
 # from copo.torch_copo.utils.utils import get_train_parser
 from marlpo.callbacks import MultiAgentDrivingCallbacks
+from marlpo.utils.utils import get_other_training_resources, get_num_workers
+
+
+# CCPPO_CONFIG = None
+
 
 TEST = False # <~~ Toggle TEST mod here! 
 # TEST = True
 
 # === Training Scene ===
-# SCENE = "roundabout"
-# SCENE = "intersection"
-SCENE = "tollgate"
+SCENE = "roundabout"
+SCENE = "intersection"
 
 if TEST: SCENE = "roundabout" 
 
 # === Env Seeds ===
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-seeds = [5000, 6000, 7000, 8000]
+seeds = [8000]
+EXP_SUFFIX = "maxsteps=1e7"
 
 if __name__ == "__main__":
-    # ===== Environment =====
+    # === Environment ===
     scenes = {
         "roundabout": MultiAgentRoundaboutEnv,
         "intersection": MultiAgentIntersectionEnv,
@@ -56,9 +61,9 @@ if __name__ == "__main__":
 
     # ===== Environmental Setting =====
 
+    num_agents = 4 #, 8, 16, 32, 40]
     env_config = dict(
-        use_render=False,
-        # num_agents=40,
+        num_agents=num_agents,
         return_single_space=True,
         # "manual_control": True,
         # crash_done=True,
@@ -68,24 +73,30 @@ if __name__ == "__main__":
     )
  
     if TEST:
+        env_config["start_seed"] = 5000
         stop = {"training_iteration": 1}
         exp_name = "TEST"
         num_rollout_workers = 1
     else:
-        stop = {"timesteps_total": 1e6}
-        exp_name = f"CCPPO_{SCENE.capitalize()}_{len(seeds)}seeds"
-        num_rollout_workers = 4
+        stop = {"timesteps_total": 1e7}
+        if len(seeds) == 1:
+            exp_name = f"CCPPO_{SCENE.capitalize()}_seed={seeds[0]}_{num_agents}agents"+EXP_SUFFIX
+        else:
+            exp_name = f"CCPPO_{SCENE.capitalize()}_{len(seeds)}seeds_{num_agents}agents"+EXP_SUFFIX
+
+        num_rollout_workers = get_num_workers()
     
 
     # === Algo Setting ===
 
     ppo_config = (
-        ARPPOConfig()
+        CCPPOConfig()
         .framework('torch')
-        .resources(num_gpus=0)
+        .resources(
+            **get_other_training_resources()
+        )
         .rollouts(
             num_rollout_workers=num_rollout_workers,
-            # rollout_fragment_length=200 # can get from algo?
         )
         .callbacks(MultiAgentDrivingCallbacks)
         .training(
@@ -118,13 +129,14 @@ if __name__ == "__main__":
             # model={"custom_model": "cc_model"}, # if redundant?
         ))
     )
+    # CCPPO_CONFIG = ppo_config
 
     # === Launch training ===
     '''
     使用CoPO修改过的PPO算法
     '''
     train(
-        ARPPOTrainer,
+        CCPPOTrainer,
         config=ppo_config,
         stop=stop,
         exp_name=exp_name,

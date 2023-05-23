@@ -10,23 +10,14 @@ from metadrive import (
 
 # from copo.torch_copo.algo_ippo import IPPOTrainer
 # from copo.torch_copo.utils.callbacks import MultiAgentDrivingCallbacks
-from marlpo.algo_ippo import IPPOTrainer
 from marlpo.train.train import train
 from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
 # from copo.torch_copo.utils.utils import get_train_parser
 from marlpo.callbacks import MultiAgentDrivingCallbacks
-from marlpo.utils.utils import get_other_training_resources, get_num_workers
 
 TEST = False
-# TEST = True
-# SCENE = "intersection"
-SCENE = "roundabout"
-
-# seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-seeds = [5000]
-
-EXP_SUFFIX = "_timesteps=1e7"
-
+TEST = True
+SCENE = "intersection"
 
 if __name__ == "__main__":
     # ===== Environment =====
@@ -48,21 +39,21 @@ if __name__ == "__main__":
     #     get_rllib_compatible_new_gymnasium_api_env(MultiAgentParkingLotEnv),
     # ])
 
-    if TEST: SCENE = "roundabout" 
+    if TEST:
+        SCENE = "roundabout" 
 
     env = get_rllib_compatible_new_gymnasium_api_env(scenes[SCENE])
 
-    # === Environmental Setting ===
-    num_agents = 4
+    # ===== Environmental Setting =====
+
     env_config = dict(
         use_render=False,
-        num_agents=num_agents,
+        # num_agents=40,
         return_single_space=True,
         # "manual_control": True,
         # crash_done=True,
         # "agent_policy": ManualControllableIDMPolicy
-        # start_seed=tune.grid_search([5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000])
-        start_seed=tune.grid_search(seeds)
+        start_seed=tune.grid_search([5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000])
     )
     if TEST:
         env_config["start_seed"] = 5000
@@ -74,15 +65,11 @@ if __name__ == "__main__":
     else:
         stop = {
             # "episodes_total": 60000,
-            "timesteps_total": 1e7,
+            "timesteps_total": 1e6,
             # "episode_reward_mean": 1000,
         }
-        if len(seeds) == 1:
-            exp_name = f"IPPO_CC_{SCENE.capitalize()}_seed={seeds[0]}_{num_agents}agents"+EXP_SUFFIX
-        else:
-            exp_name = f"IPPO_CC_{SCENE.capitalize()}_{len(seeds)}seeds_{num_agents}agents"+EXP_SUFFIX
-
-        num_rollout_workers = get_num_workers()
+        exp_name = f"IPPO_{SCENE.capitalize()}_8seeds"
+        num_rollout_workers = 2
     
 
     # ===== Algo Setting =====
@@ -90,11 +77,10 @@ if __name__ == "__main__":
     ppo_config = (
         PPOConfig()
         .framework('torch')
-        .resources(
-            **get_other_training_resources()
-        )
+        .resources(num_gpus=0)
         .rollouts(
             num_rollout_workers=num_rollout_workers,
+            # rollout_fragment_length=200 # can get from algo?
         )
         .callbacks(MultiAgentDrivingCallbacks)
         .training(
@@ -104,7 +90,6 @@ if __name__ == "__main__":
             sgd_minibatch_size=512,
             num_sgd_iter=5,
             lambda_=0.95,
-            model={"custom_model_config": {'n_actions': num_agents-1}}
         )
         .multi_agent(
         )
@@ -119,10 +104,10 @@ if __name__ == "__main__":
 
     # === Launch training ===
     '''
-    使用CoPO修改过的PPO算法
+    使用原生RLlib的PPO算法
     '''
     train(
-        IPPOTrainer,
+        "PPO",
         config=ppo_config,
         stop=stop,
         exp_name=exp_name,

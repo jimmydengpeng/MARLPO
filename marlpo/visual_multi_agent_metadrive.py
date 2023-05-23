@@ -1,3 +1,7 @@
+from collections import defaultdict
+
+import numpy as np
+
 from ray.rllib.algorithms import Algorithm
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.tune.registry import register_trainable, register_env
@@ -9,42 +13,160 @@ from metadrive import (
 
 from marlpo.algo_ippo import IPPOConfig, IPPOTrainer
 from marlpo.algo_arippo import ARIPPOConfig, ARIPPOTrainer
+from marlpo.algo_ccppo import CCPPOConfig, CCPPOTrainer
 from marlpo.callbacks import MultiAgentDrivingCallbacks
 from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
-from marlpo.utils.utils import print, inspect, get_other_training_resources
+from marlpo.utils.utils import print, inspect, get_other_training_resources, get_num_workers
 
 
 
 # === Set a lot of configs ===
 
 SCENE = "roundabout"
+# SCENE = "intersection"
+ALGO = 'ARPPO'
+# ALGO = 'IPPO'
+# ALGO = 'CCPPO'
+CCPPO_fuse_mode = 'concat'
 SEED = 5000
 NUM_AGENTS = 4
 
 
 ALL_CKP = dict(
-    IPPO="exp_results/IPPO_CC_Roundabout_seed=5000_4agents/IPPOTrainer_MultiAgentRoundaboutEnv_b9bb5_00000_0_start_seed=5000_2023-05-18_20-22-58/checkpoint_000977",
-    ARPPO="/Users/jimmy/ray_results/ARIPPO_V0_Roundabout_1seeds_NumAgentsSearch_4agents/ARIPPOTrainer_MultiAgentRoundaboutEnv_b0e1f_00000_0_start_seed=5000_2023-05-18_14-10-30/checkpoint_000977",
+    # IPPO_4a_5000="exp_results/IPPO_CC_Roundabout_seed=5000_4agents/IPPOTrainer_MultiAgentRoundaboutEnv_b9bb5_00000_0_start_seed=5000_2023-05-18_20-22-58/checkpoint_000977",
+    IPPO_4a_5000="/Users/jimmy/ray_results/IPPO_Central_Value_Roundabout_8seeds/IPPOTrainer_MultiAgentRoundaboutEnv_ac78b_00000_0_start_seed=5000_2023-04-20_18-04-01/checkpoint_000977",
+    ARPPO_4a_5000="/Users/jimmy/ray_results/ARIPPO_V0_Roundabout_1seeds_NumAgentsSearch_4agents/ARIPPOTrainer_MultiAgentRoundaboutEnv_b0e1f_00000_0_start_seed=5000_2023-05-18_14-10-30/checkpoint_000977",
+    ARPPO_40a_5000="/Users/jimmy/ray_results/ARIPPO_V0_Roundabout_8seeds/ARIPPOTrainer_MultiAgentRoundaboutEnv_cc1dc_00000_0_start_seed=5000_2023-05-17_23-02-09/checkpoint_000977",
+    ARPPO_32a_5000="/Users/jimmy/ray_results/ARIPPO_V0_Roundabout_seed=5000_NumAgentsSearch_32agents/ARIPPOTrainer_MultiAgentRoundaboutEnv_11848_00000_0_start_seed=5000_2023-05-18_15-53-25/checkpoint_000977",
+    ARPPO_16a_5000="/Users/jimmy/ray_results/ARIPPO_V0_Roundabout_seed5000seeds_NumAgentsSearch_16agents/ARIPPOTrainer_MultiAgentRoundaboutEnv_6f6c6_00000_0_start_seed=5000_2023-05-18_14-51-37/checkpoint_000977",
+    ARPPO_8a_5000="/Users/jimmy/ray_results/ARIPPO_V0_Roundabout_1seeds_NumAgentsSearch_8agents/ARIPPOTrainer_MultiAgentRoundaboutEnv_c3401_00000_0_start_seed=5000_2023-05-18_14-25-20/checkpoint_000977",
+    CCPPO_concat_4a_5000="exp_results/CCPPO_Roundabout_4seeds_4agents/CCPPOTrainer_MultiAgentRoundaboutEnv_c9184_00000_0_start_seed=5000_fuse_mode=concat_2023-05-21_19-58-22/checkpoint_000977",
+    CCPPO_concat_40a_5000="/Users/jimmy/ray_results/CCPPO_Roundabout_8seeds/CCPPOTrainer_MultiAgentRoundaboutEnv_a9c37_00000_0_start_seed=5000,fuse_mode=concat_2023-04-21_13-02-06/checkpoint_000977",
+    ARPPO_4a_5000_intersection="exp_results/ARIPPO_V0_Intersection_4seeds_4agents/ARIPPOTrainer_MultiAgentIntersectionEnv_31282_00000_0_start_seed=5000_2023-05-22_13-47-52/checkpoint_000977",
+    ARPPO_4a_8000_intersection="exp_results/ARIPPO_V0_Intersection_4seeds_4agents/ARIPPOTrainer_MultiAgentIntersectionEnv_31282_00003_3_start_seed=8000_2023-05-22_14-46-31/checkpoint_000977",
+    CCPPO_concat_4a_8000_intersection="exp_results/CCPPO_Intersection_4seeds_4agents/CCPPOTrainer_MultiAgentIntersectionEnv_c8dd5_00003_3_start_seed=8000_fuse_mode=concat_2023-05-22_16-23-18/checkpoint_000977",
 )
-ckp = 'ARPPO'
-CKP_DIR = ALL_CKP[ckp]
+# ckp = 'ARPPO_32a_5000'
 
-if ckp == 'IPPO':
+
+if ALGO == 'IPPO':
     AlgoConfig = IPPOConfig
     AlgoTrainer = IPPOTrainer
+    MODEL_CONFIG={}
+    OTHER_CONFIG = {}
 
-elif ckp == 'ARPPO':
+elif ALGO == 'ARPPO':
     AlgoConfig = ARIPPOConfig
     AlgoTrainer = ARIPPOTrainer
     MODEL_CONFIG={"custom_model_config": {'n_actions': NUM_AGENTS-1}}
+    OTHER_CONFIG = {}
+elif ALGO == 'CCPPO':
+    AlgoTrainer = CCPPOTrainer
+    AlgoConfig = CCPPOConfig
+    MODEL_CONFIG = {}
+    OTHER_CONFIG = dict(
+        counterfactual=True,
+        # fuse_mode="concat",
+        # mf_nei_distance=10,
+        # model={"custom_model": "cc_model"}, # if redundant?
+        fuse_mode=CCPPO_fuse_mode,
+    )
+    ALGO = ALGO + '_' + CCPPO_fuse_mode
+else:
+    raise NotImplementedError
 
-def compute_actions_for_multi_agents(algo, obs):
+ckp = "_".join([ALGO, str(NUM_AGENTS)+'a', str(SEED)])
+if SCENE == 'intersection':
+    ckp = ckp + '_' + SCENE
+CKP_DIR = ALL_CKP[ckp]
+
+
+def compute_actions_for_multi_agents_in_batch(algo, obs):
+    actions = algo.compute_actions(obs)
+    return actions
+
+def compute_actions_for_multi_agents_separately(algo, obs):
     actions = {}
     for agent_id in obs:
         o = obs[agent_id]
         actions[agent_id] = algo.compute_single_action(o)
     return actions
 
+
+# === Metrics callbacks ===
+class MetricCallbacks():
+
+    def __init__(self) -> None:
+        pass
+
+    def _setup(self):
+        self._last_infos = {}
+        self.data = {}
+
+    def on_episode_start(self):
+        self._setup()
+
+        # data["velocity"] = defaultdict(list)
+        # data["steering"] = defaultdict(list)
+        # data["step_reward"] = defaultdict(list)
+        # data["acceleration"] = defaultdict(list)
+        # data["episode_length"] = defaultdict(list)
+        # data["episode_reward"] = defaultdict(list)
+        # data["num_neighbours"] = defaultdict(list)
+
+    def on_episode_step(self, infos, active_keys=None):
+        for agent_id, info in infos.items():
+            self.set_last_info(agent_id, info)
+        
+        # for agent_id in active_keys:
+        #     k = agent_id
+        #     info = last_infos.get(k)
+        #     if info:
+        #         if "step_reward" not in info:
+        #             continue
+        #         data["velocity"][k].append(info["velocity"])
+        #         data["steering"][k].append(info["steering"])
+        #         data["step_reward"][k].append(info["step_reward"])
+        #         data["acceleration"][k].append(info["acceleration"])
+        #         data["episode_length"][k].append(info["episode_length"])
+        #         data["episode_reward"][k].append(info["episode_reward"])
+        #         data["num_neighbours"][k].append(len(info.get("neighbours", []))) # may not contain
+
+    def on_episode_end(self, metrics):
+        arrive_dest_list = []
+        crash_list = []
+        out_of_road_list = []
+        max_step_list = []
+        epi_rew_list = []
+        epi_len_list = []
+        for k in self._last_infos:
+            info = self._last_infos[k]
+
+            arrive_dest = info.get("arrive_dest", False)
+            crash = info.get("crash", False)
+            out_of_road = info.get("out_of_road", False)
+            max_step = not (arrive_dest or crash or out_of_road)
+
+            arrive_dest_list.append(arrive_dest)
+            crash_list.append(crash)
+            out_of_road_list.append(out_of_road)
+            max_step_list.append(max_step)
+
+            epi_rew_list.append(info.get("episode_reward", 0))
+            epi_len_list.append(info.get("episode_length", 0))
+
+        # === 计算 成功率、撞车、出界率、最大步数率 ===
+        metrics["success_rate"] = np.mean(arrive_dest_list)
+        metrics["crash_rate"] = np.mean(crash_list)
+        metrics["out_of_road_rate"] = np.mean(out_of_road_list)
+        metrics["max_step_rate"] = np.mean(max_step_list)
+
+        # === 计算 平均奖励、平均长度 ===
+        metrics["epsode_reward_mean"] = np.mean(epi_rew_list)
+        metrics["epsode_length_mean"] = np.mean(epi_len_list)
+
+    def set_last_info(self, agent_id, info):
+        self._last_infos[agent_id] = info
 
 if __name__ == "__main__":
 
@@ -72,7 +194,7 @@ if __name__ == "__main__":
 
     # === Algo Setting ===
 
-    ppo_config = (
+    algo_config = (
         AlgoConfig()
         .framework('torch')
         .resources(
@@ -93,39 +215,104 @@ if __name__ == "__main__":
         )
         .multi_agent(
         )
-        # .evaluation(
-        #     evaluation_interval=2,
-        #     evaluation_duration=40,
-        #     evaluation_config=dict(env_config=dict(environment_num=200, start_seed=0)),
-        #     evaluation_num_workers=1,)
         .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
+        .update_from_dict(OTHER_CONFIG)
     )
 
-    algo = AlgoTrainer(config=ppo_config)
+    # from ray.rllib.algorithms.algorithm import Algorithm
+    # algo = Algorithm.from_checkpoint(checkpoint_path)
+
+    algo = AlgoTrainer(config=algo_config)
+    # algo = AlgoTrainer(config=ALGO_CONFIG)
     algo.load_checkpoint(CKP_DIR)
+    # inspect(algo.workers)
+    # inspect(algo.workers.local_worker())
+    # inspect(algo.workers.local_worker().preprocessors)
     # env = algo.workers.local_worker().env
+
+    # === init metric callbacks ===
+    callbacks = MetricCallbacks()
 
     env = env_cls(env_config)
     obs, info = env.reset()
+    callbacks.on_episode_start()
 
     stop_render = False
-    max_render_epi = 100
+    NUM_EPISODES_TOTAL = 100
     cur_epi = 0
+
+    RENDER = False
+
+    episodic_mean_rews = []
+    episodic_mean_succ_rate = []
+    episodic_mean_out_rate = []
+    episodic_mean_crash_rate = []
+
+    epi_mean_rews = 0
+    epi_mean_succ_rate = 0
+    epi_mean_out_rate = 0
+    epi_mean_crash_rate = 0
+
+
+    last_infos = {}
+
+    data = {
+        "episode_reward": defaultdict(list)
+    }
+    metrics = {
+        "success_rate": np.float32(0),
+        "crash_rate": np.float32(0),
+        "out_of_road_rate": np.float32(0),
+        "max_step_rate": np.float32(0),
+        "epsode_length_mean": np.float32(0),
+        "epsode_reward_mean": np.float32(0),
+    }
+
+    epi_succ_rate_list = []
+    epi_crash_rate_list = []
+    epi_out_rate_list = []
+    epi_max_step_rate_list = []
+
     while not stop_render:
         
-        actions = compute_actions_for_multi_agents(algo, obs)
-        obs, r, term, trunc, info = env.step(actions)
+        if ALGO == 'ARPPO':
+            actions = compute_actions_for_multi_agents_in_batch(algo, obs)
+        else:
+            actions = compute_actions_for_multi_agents_separately(algo, obs)
 
+        obs, rew, term, trunc, infos = env.step(actions)
+        callbacks.on_episode_step(infos=infos)
+
+        # on_episode_step()
+
+            
+
+        # === episode end ===
         if term['__all__']:
             cur_epi += 1
-            print(f'episode {cur_epi} ends.')
-            obs, info = env.reset()
-            if cur_epi > max_render_epi:
-                stop_render = True
+            callbacks.on_episode_end(metrics)
+            epi_succ_rate_list.append(metrics["success_rate"])
+            epi_crash_rate_list.append(metrics["crash_rate"])
+            epi_out_rate_list.append(metrics["out_of_road_rate"])
+            epi_max_step_rate_list.append(metrics["max_step_rate"])
+            print(f'episode #{cur_epi} ends.')
+            print(metrics)
 
-        env.render(mode="top_down", film_size=(1000, 1000)) 
+            if cur_epi >= NUM_EPISODES_TOTAL:
+                stop_render = True
+                break
+
+            callbacks.on_episode_start()
+            obs, infos = env.reset()
+           
+        if RENDER:
+            env.render(mode="top_down", film_size=(1000, 1000))
 
     env.close()
+    print(np.mean(epi_succ_rate_list))
+    print(np.mean(epi_crash_rate_list))
+    print(np.mean(epi_out_rate_list))
+    print(np.mean(epi_max_step_rate_list))
 
 
 

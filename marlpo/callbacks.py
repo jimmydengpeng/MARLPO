@@ -24,8 +24,9 @@ from colorlog import logger
 class MultiAgentDrivingCallbacks(DefaultCallbacks):
 
     def on_sample_end(self, *, worker: RolloutWorker, samples: SampleBatch, **kwargs) -> None:
-        actions = samples['default_policy']['actions']
-        print('[on_sample_end] actions:', len(actions), actions, sep='\n')
+        # actions = samples['default_policy']['actions']
+        # print('[on_sample_end] actions:', len(actions), actions, sep='\n')
+        pass
 
 
     def on_episode_start(

@@ -136,6 +136,7 @@ class IPPOPolicy(PPOTorchPolicy):
 
         value_fn_out = model.value_function()
 
+        # === 使用IPPO中的 Value Loss
         if self.config["old_value_loss"]:
             current_vf = value_fn_out
             prev_vf = train_batch[SampleBatch.VF_PREDS]

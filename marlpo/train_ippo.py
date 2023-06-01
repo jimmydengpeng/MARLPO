@@ -23,7 +23,8 @@ SCENE = "intersection"
 # SCENE = "roundabout"
 
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-seeds = [8000]
+seeds = [5000]
+num_agents = 40
 
 EXP_SUFFIX = ""
 
@@ -53,7 +54,6 @@ if __name__ == "__main__":
     env = get_rllib_compatible_new_gymnasium_api_env(scenes[SCENE])
 
     # === Environmental Setting ===
-    num_agents = 4
     env_config = dict(
         use_render=False,
         num_agents=num_agents,

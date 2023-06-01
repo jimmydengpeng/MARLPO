@@ -14,6 +14,7 @@ from metadrive import (
 from marlpo.algo_ippo import IPPOConfig, IPPOTrainer
 from marlpo.algo_arippo import ARIPPOConfig, ARIPPOTrainer
 from marlpo.algo_ccppo import CCPPOConfig, CCPPOTrainer
+from marlpo.algo_arccppo import ARCCPPOConfig, ARCCPPOTrainer, get_ccppo_env
 from marlpo.callbacks import MultiAgentDrivingCallbacks
 from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
 from marlpo.utils.utils import print, inspect, get_other_training_resources, get_num_workers
@@ -22,14 +23,17 @@ from marlpo.utils.utils import print, inspect, get_other_training_resources, get
 
 # === Set a lot of configs ===
 
-SCENE = "roundabout"
-# SCENE = "intersection"
-ALGO = 'ARPPO'
+# SCENE = "roundabout"
+SCENE = "intersection"
+# ALGO = 'ARPPO'
 # ALGO = 'IPPO'
 # ALGO = 'CCPPO'
-CCPPO_fuse_mode = 'concat'
+ALGO = 'ARCCPPO'
+FUSE_MODE = 'concat' 
+# FUSE_MODE = 'mf'
+
 SEED = 5000
-NUM_AGENTS = 4
+NUM_AGENTS = 40
 
 
 ALL_CKP = dict(
@@ -41,10 +45,18 @@ ALL_CKP = dict(
     ARPPO_16a_5000="/Users/jimmy/ray_results/ARIPPO_V0_Roundabout_seed5000seeds_NumAgentsSearch_16agents/ARIPPOTrainer_MultiAgentRoundaboutEnv_6f6c6_00000_0_start_seed=5000_2023-05-18_14-51-37/checkpoint_000977",
     ARPPO_8a_5000="/Users/jimmy/ray_results/ARIPPO_V0_Roundabout_1seeds_NumAgentsSearch_8agents/ARIPPOTrainer_MultiAgentRoundaboutEnv_c3401_00000_0_start_seed=5000_2023-05-18_14-25-20/checkpoint_000977",
     CCPPO_concat_4a_5000="exp_results/CCPPO_Roundabout_4seeds_4agents/CCPPOTrainer_MultiAgentRoundaboutEnv_c9184_00000_0_start_seed=5000_fuse_mode=concat_2023-05-21_19-58-22/checkpoint_000977",
-    CCPPO_concat_40a_5000="/Users/jimmy/ray_results/CCPPO_Roundabout_8seeds/CCPPOTrainer_MultiAgentRoundaboutEnv_a9c37_00000_0_start_seed=5000,fuse_mode=concat_2023-04-21_13-02-06/checkpoint_000977",
+    CCPPO_concat_40a_5000="/Users/jimmy/ray_results/CCPPO_Roundabout_8seeds/CCPPOTrainer_MultiAgentRoundaboutEnv_a9c37_00000_0_start_seed=5000_fuse_mode=concat_2023-04-21_13-02-06/checkpoint_000977",
     ARPPO_4a_5000_intersection="exp_results/ARIPPO_V0_Intersection_4seeds_4agents/ARIPPOTrainer_MultiAgentIntersectionEnv_31282_00000_0_start_seed=5000_2023-05-22_13-47-52/checkpoint_000977",
     ARPPO_4a_8000_intersection="exp_results/ARIPPO_V0_Intersection_4seeds_4agents/ARIPPOTrainer_MultiAgentIntersectionEnv_31282_00003_3_start_seed=8000_2023-05-22_14-46-31/checkpoint_000977",
+    # ARPPO_4a_8000_intersection="exp_results/ARIPPO_V0_Intersection_seed=8000_4agentsmaxsteps=1e7/ARIPPOTrainer_MultiAgentIntersectionEnv_8df55_00000_0_start_seed=8000_2023-05-22_17-18-03/checkpoint_009766",
+    # ARPPO_4a_8000_intersection="exp_results/ARIPPO_V0_Intersection_seed=8000_4agentsmaxsteps=1e7/ARIPPOTrainer_MultiAgentIntersectionEnv_8df55_00000_0_start_seed=8000_2023-05-22_17-18-03/checkpoint_001960",
     CCPPO_concat_4a_8000_intersection="exp_results/CCPPO_Intersection_4seeds_4agents/CCPPOTrainer_MultiAgentIntersectionEnv_c8dd5_00003_3_start_seed=8000_fuse_mode=concat_2023-05-22_16-23-18/checkpoint_000977",
+    IPPO_4a_8000_intersection="exp_results/IPPO_Intersection_seed=8000_4agents/IPPOTrainer_MultiAgentIntersectionEnv_62b1e_00000_0_start_seed=8000_2023-05-23_17-44-17/checkpoint_000977",
+    CCPPO_mf_4a_8000_intersection="exp_results/CCPPO_Intersection_seed=8000_4agents/CCPPOTrainer_MultiAgentIntersectionEnv_7b14d_00000_0_start_seed=8000_fuse_mode=mf_2023-05-23_22-09-50/checkpoint_000977",
+    ARCCPPO_concat_4a_5000="exp_results/ARCCPPO_Roundabout_seed=5000_40agents_V0/ARCCPPOTrainer_MultiAgentRoundaboutEnv_51fd6_00001_1_start_seed=5000_fuse_mode=concat_2023-05-31_15-02-05/checkpoint_000840",
+    ARCCPPO_concat_40a_5000="exp_results/ARCCPPO_Roundabout_seed=5000_40agents_V0/ARCCPPOTrainer_MultiAgentRoundaboutEnv_51fd6_00001_1_start_seed=5000_fuse_mode=concat_2023-05-31_15-02-05/checkpoint_000977",
+    ARCCPPO_mf_40a_5000_intersection="exp_results/ARCCPPO_Intersection_seed=5000_40agents_V0/ARCCPPOTrainer_MultiAgentIntersectionEnv_3b3e0_00000_0_start_seed=5000_fuse_mode=mf_2023-05-31_12-04-25/checkpoint_000977",
+    ARCCPPO_concat_40a_5000_intersection="exp_results/ARCCPPO_Intersection_seed=5000_40agents_V1/ARCCPPOTrainer_MultiAgentIntersectionEnv_e59bc_00002_2_counterfactual=True_start_seed=5000_fuse_mode=concat_2023-06-01_01-31-52/checkpoint_000977",
 )
 # ckp = 'ARPPO_32a_5000'
 
@@ -66,12 +78,25 @@ elif ALGO == 'CCPPO':
     MODEL_CONFIG = {}
     OTHER_CONFIG = dict(
         counterfactual=True,
-        # fuse_mode="concat",
         # mf_nei_distance=10,
-        # model={"custom_model": "cc_model"}, # if redundant?
-        fuse_mode=CCPPO_fuse_mode,
+        fuse_mode=FUSE_MODE,
     )
-    ALGO = ALGO + '_' + CCPPO_fuse_mode
+    ALGO = ALGO + '_' + FUSE_MODE
+elif  ALGO == 'ARCCPPO':
+    AlgoTrainer = ARCCPPOTrainer
+    AlgoConfig = ARCCPPOConfig
+    MODEL_CONFIG = {
+        "custom_model_config": {
+            "num_neighbours": 4,
+        }
+    }
+    OTHER_CONFIG = dict(
+        counterfactual=True,
+        # mf_nei_distance=10,
+        fuse_mode=FUSE_MODE,
+    )
+    ALGO = ALGO + '_' + FUSE_MODE
+
 else:
     raise NotImplementedError
 
@@ -81,8 +106,14 @@ if SCENE == 'intersection':
 CKP_DIR = ALL_CKP[ckp]
 
 
-def compute_actions_for_multi_agents_in_batch(algo, obs):
-    actions = algo.compute_actions(obs)
+def compute_actions_for_multi_agents_in_batch(algo, obs, infos):
+    info_list = []
+    assert isinstance(infos, dict)
+    for k in obs:
+        infos[k]['agent_id'] = k
+        info_list.append(infos[k])
+        
+    actions = algo.compute_actions(obs, info=info_list, explore=False)
     return actions
 
 def compute_actions_for_multi_agents_separately(algo, obs):
@@ -168,6 +199,20 @@ class MetricCallbacks():
     def set_last_info(self, agent_id, info):
         self._last_infos[agent_id] = info
 
+
+def print_final_summary(rate_lists):
+    # epi_succ_rate_list, epi_crash_rate_list, epi_out_rate_list, epi_max_step_rate_list
+    rates = []
+    for rate_list in rate_lists:
+        rates.append(np.mean(rate_list).round(2))
+
+    # res = []
+    prefix_strs = ('succ_rate', 'crash_rate', 'out_rate', 'maxstep_rate')
+    for prefix, rate in zip(prefix_strs, rates):
+        res = prefix+': '+str(rate*100)+'%'
+        print(res, end='\n')
+    
+
 if __name__ == "__main__":
 
     scenes = {
@@ -178,7 +223,10 @@ if __name__ == "__main__":
         "parkinglot": MultiAgentParkingLotEnv,
     }
 
-    env, env_cls = get_rllib_compatible_new_gymnasium_api_env(scenes[SCENE], return_class=True)
+    if 'ARCCPPO' in ALGO:
+        env, env_cls = get_ccppo_env(scenes[SCENE], return_class=True)
+    else:
+        env, env_cls = get_rllib_compatible_new_gymnasium_api_env(scenes[SCENE], return_class=True)
 
    # === Environmental Setting ===
     env_config = dict(
@@ -234,14 +282,15 @@ if __name__ == "__main__":
     callbacks = MetricCallbacks()
 
     env = env_cls(env_config)
-    obs, info = env.reset()
+    obs, infos = env.reset()
     callbacks.on_episode_start()
 
     stop_render = False
-    NUM_EPISODES_TOTAL = 100
+    NUM_EPISODES_TOTAL = 10
     cur_epi = 0
 
     RENDER = False
+    RENDER = True
 
     episodic_mean_rews = []
     episodic_mean_succ_rate = []
@@ -275,10 +324,10 @@ if __name__ == "__main__":
 
     while not stop_render:
         
-        if ALGO == 'ARPPO':
-            actions = compute_actions_for_multi_agents_in_batch(algo, obs)
-        else:
-            actions = compute_actions_for_multi_agents_separately(algo, obs)
+        # if ALGO == 'ARPPO' or ALGO == 'ARCCPPO_concat':
+        actions = compute_actions_for_multi_agents_in_batch(algo, obs, infos)
+        # else:
+        #     actions = compute_actions_for_multi_agents_separately(algo, obs, infos)
 
         obs, rew, term, trunc, infos = env.step(actions)
         callbacks.on_episode_step(infos=infos)
@@ -309,10 +358,12 @@ if __name__ == "__main__":
             env.render(mode="top_down", film_size=(1000, 1000))
 
     env.close()
-    print(np.mean(epi_succ_rate_list))
-    print(np.mean(epi_crash_rate_list))
-    print(np.mean(epi_out_rate_list))
-    print(np.mean(epi_max_step_rate_list))
+    print_final_summary((
+        epi_succ_rate_list, 
+        epi_crash_rate_list, 
+        epi_out_rate_list, 
+        epi_max_step_rate_list
+    ))
 
 
 

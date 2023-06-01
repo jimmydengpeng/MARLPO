@@ -1,5 +1,5 @@
 import functools
-
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Type, Union
 import gymnasium as gym
 import numpy as np
 
@@ -20,6 +20,15 @@ from ray.rllib.utils.torch_utils import (
     sequence_mask,
     warn_if_infinite_kl_divergence,
 )
+from ray.rllib.utils.typing import (
+    AlgorithmConfigDict,
+    GradInfoDict,
+    ModelGradients,
+    ModelWeights,
+    PolicyState,
+    TensorStructType,
+    TensorType,
+)
 from ray.rllib.utils.annotations import (
     DeveloperAPI,
     OverrideToImplementCustomLogic,
@@ -27,11 +36,10 @@ from ray.rllib.utils.annotations import (
     is_overridden,
     override,
 )
-from ray.rllib.utils.typing import ModelConfigDict
 
 from marlpo.model_arippo import ARFullyConnectedModel
 
-from utils.utils import log, inspect
+from utils.utils import log, inspect, print
 
 torch, nn = try_import_torch()
 
@@ -62,7 +70,7 @@ class ARIPPOConfig(PPOConfig):
         # Two important updates
         self.vf_clip_param = 100
         self.old_value_loss = True
-        self.update_from_dict({"model": {"custom_model": "ar_model"}})
+        self.update_from_dict({"model": {"custom_model": "ar_fc_model"}})
     '''
     def validate(self):
         # Note that in new RLLib the rollout_fragment_length will auto adjust to a new value
@@ -101,15 +109,13 @@ class ARIPPOConfig(PPOConfig):
 
 
 
-ModelCatalog.register_custom_model("ar_model", ARFullyConnectedModel)
+ModelCatalog.register_custom_model("ar_fc_model", ARFullyConnectedModel)
 
 
 
 
 class ARIPPOPolicy(PPOTorchPolicy):
     
-
-
     @with_lock
     def _compute_action_helper(
         self, input_dict, state_batches, seq_lens, explore, timestep
@@ -175,9 +181,9 @@ class ARIPPOPolicy(PPOTorchPolicy):
                     is_training=False,
                 )
             else:
+                # === Implement the Auto-Regressive Policy here! ===
                 # print("start to compute actions auoregressively from the model <{}>!".format(self.model.name))
                 # log(self.model)
-                # === Implement the Auto-Regressive Policy here! ===
                 use_ar_policy = True
                 dist_class = self.dist_class
                 
@@ -205,7 +211,7 @@ class ARIPPOPolicy(PPOTorchPolicy):
                     # o = torch.unsqueeze(o, 0)
                     # print(o.shape)
                     single_agent_input_dict[SampleBatch.OBS] = o
-                    single_agent_input_dict['other_actions'] = actions_input
+                    single_agent_input_dict['other_agent_actions'] = actions_input
                     # pass other agents' actions to model
 
                     assert state_batches == []
@@ -240,6 +246,8 @@ class ARIPPOPolicy(PPOTorchPolicy):
                 extra_fetches[SampleBatch.VF_PREDS] = torch.squeeze(torch.stack(vf_preds), 1)
                 # print('extra_fetches ==>', extra_fetches)
                 # print('[ARIPPOPolicy] sampled actions:', actions)
+
+                # === Modification Ends ===
 
             if not (
                 isinstance(dist_class, functools.partial)
@@ -293,6 +301,7 @@ class ARIPPOPolicy(PPOTorchPolicy):
         # print('>>> in postprocess_trajectory')
         # inspect(sample_batch)
         return super().postprocess_trajectory(sample_batch, other_agent_batches, episode)
+
 
 class ARIPPOTrainer(PPO):
     @classmethod

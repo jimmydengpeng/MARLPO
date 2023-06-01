@@ -8,7 +8,7 @@ from ray.rllib.utils.annotations import override
 from ray.rllib.utils.framework import try_import_torch
 from ray.rllib.utils.typing import Dict, TensorType, List, Tuple, ModelConfigDict
 
-from utils.utils import log, inspect
+from marlpo.utils.utils import log, inspect
 
 torch, nn = try_import_torch()
 
@@ -154,10 +154,12 @@ class ARFullyConnectedModel(TorchModelV2, nn.Module):
         self._last_flat_in = obs.reshape(obs.shape[0], -1) # (, 91)
         # === Modified here! ===
         # get other_actions and flat
-        if "other_actions" in input_dict and len(input_dict["other_actions"].shape) == 2: # TODO: modify 
-            other_actions = input_dict["other_actions"].reshape(self._last_flat_in.shape[0], -1)
+        if "other_agent_actions" in input_dict and len(input_dict["other_agent_actions"].shape) == 2: # TODO: modify 
+            print('--- got other_agents_actions in Model.forword() ---')
+            other_actions = input_dict["other_agent_actions"].reshape(self._last_flat_in.shape[0], -1)
         else:
             other_actions = torch.from_numpy(np.zeros((self._last_flat_in.shape[0], int(np.product(self.action_space.shape)) * (self.n_actions)), dtype=np.float32))
+            print('=== no other_agents_actions in Model.forword() ===')
             # print(1, input_dict.keys())
             # inspect(self._last_flat_in.shape)
             # inspect(other_actions.shape)

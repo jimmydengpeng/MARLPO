@@ -15,19 +15,19 @@ from marlpo.callbacks import MultiAgentDrivingCallbacks
 from marlpo.utils.utils import get_other_training_resources, get_num_workers
 
     
-TEST = False
-# TEST = True
+# TEST = False
+TEST = True
 
 TRAIN_ALL_ENV = False
 
-SCENE = "intersection" # scene to train { roundabout, intersection, }
+SCENE = "roundabout" # scene to train { roundabout, intersection, }
 if TEST: 
     SCENE = "roundabout" 
 
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-seeds = [8000]
+seeds = [5000]
 
-EXP_SUFFIX = "maxsteps=1e7"
+EXP_SUFFIX = ""
 
 
 if __name__ == "__main__":
@@ -75,7 +75,7 @@ if __name__ == "__main__":
         exp_name = "TEST"
         num_rollout_workers = 1
     else:
-        stop = {"timesteps_total": 1e7}
+        stop = {"timesteps_total": 1e6}
         if len(seeds) == 1:
             exp_name = f"ARIPPO_V0_{SCENE.capitalize()}_seed={seeds[0]}_{num_agents}agents"+EXP_SUFFIX
         else:

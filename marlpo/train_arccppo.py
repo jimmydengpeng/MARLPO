@@ -10,7 +10,7 @@ from metadrive import (
 
 # from copo.torch_copo.algo_ippo import IPPOTrainer
 # from copo.torch_copo.utils.callbacks import MultiAgentDrivingCallbacks
-from marlpo.algo_ccppo import CCPPOConfig, CCPPOTrainer, get_ccppo_env
+from marlpo.algo_arccppo import ARCCPPOConfig, ARCCPPOTrainer, get_ccppo_env
 
 from marlpo.train.train import train
 from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
@@ -34,7 +34,7 @@ if TEST: SCENE = "roundabout"
 # === Env Seeds ===
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
 seeds = [5000]
-EXP_SUFFIX = ""
+EXP_SUFFIX = "_V1"
 
 if __name__ == "__main__":
     # === Environment ===
@@ -61,24 +61,25 @@ if __name__ == "__main__":
 
     # ===== Environmental Setting =====
 
-    num_agents = 4 #, 8, 16, 32, 40]
+    num_agents = 8 #, 8, 16, 32, 40]
     env_config = dict(
         num_agents=num_agents,
         return_single_space=True,
-        start_seed=tune.grid_search(seeds)
+        start_seed=tune.grid_search(seeds),
+        neighbours_distance=10,
     )
  
     if TEST:
         env_config["start_seed"] = 5000
         stop = {"training_iteration": 1}
         exp_name = "TEST"
-        num_rollout_workers = 1
+        num_rollout_workers = 0
     else:
         stop = {"timesteps_total": 1e6}
         if len(seeds) == 1:
-            exp_name = f"CCPPO_{SCENE.capitalize()}_seed={seeds[0]}_{num_agents}agents"+EXP_SUFFIX
+            exp_name = f"ARCCPPO_{SCENE.capitalize()}_seed={seeds[0]}_{num_agents}agents"+EXP_SUFFIX
         else:
-            exp_name = f"CCPPO_{SCENE.capitalize()}_{len(seeds)}seeds_{num_agents}agents"+EXP_SUFFIX
+            exp_name = f"ARCCPPO_{SCENE.capitalize()}_{len(seeds)}seeds_{num_agents}agents"+EXP_SUFFIX
 
         num_rollout_workers = get_num_workers()
     
@@ -86,7 +87,7 @@ if __name__ == "__main__":
     # === Algo Setting ===
 
     ppo_config = (
-        CCPPOConfig()
+        ARCCPPOConfig()
         .framework('torch')
         .resources(
             **get_other_training_resources()
@@ -102,11 +103,11 @@ if __name__ == "__main__":
             sgd_minibatch_size=512,
             num_sgd_iter=5,
             lambda_=0.95,
-            # model=dict(
-            #     custom_model_config={
-                    
-            #     }
-            # ),
+            model={
+                "custom_model_config": {
+                    "num_neighbours": 4,
+                }
+            },
         )
         # .multi_agent(
         # )
@@ -117,17 +118,17 @@ if __name__ == "__main__":
         #     evaluation_num_workers=1,)
         .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
         .update_from_dict(dict(
-            counterfactual=True,
+            counterfactual=tune.grid_search([True, False]),
             # fuse_mode="concat",
-            fuse_mode=tune.grid_search(["concat"]),
-            # fuse_mode=tune.grid_search(["mf", "concat"]),
-            mf_nei_distance=100,
+            # fuse_mode=tune.grid_search(["mf"]),
+            fuse_mode=tune.grid_search(["mf", "concat", "none"]),
+            random_order=True,
         ))
     )
 
     # === Launch training ===
     train(
-        CCPPOTrainer,
+        ARCCPPOTrainer,
         config=ppo_config,
         stop=stop,
         exp_name=exp_name,

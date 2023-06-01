@@ -1437,3 +1437,4 @@ test*.*
 _*.*
 experiments/
 exp_results/
+tensorboard.sh

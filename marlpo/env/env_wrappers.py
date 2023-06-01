@@ -3,6 +3,9 @@ import copy
 from collections import defaultdict
 from math import cos, sin
 
+import gymnasium as gym
+from gymnasium.spaces import Box
+
 import numpy as np
 from metadrive.utils import get_np_random, clip
 
@@ -205,7 +208,10 @@ def get_rllib_compatible_new_gymnasium_api_env(env_class, return_class=False):
             ):
             # o = super(NewAPIMAEnv, self).reset(seed=seed, options=options)
             o = super(NewAPIMAEnv, self).reset(force_seed=seed)
-            return o, {}
+            infos = {}
+            for k in o:
+                infos[k] = {}
+            return o, infos
 
         def step(self, action):
             o, r, d, i = super(NewAPIMAEnv, self).step(action)

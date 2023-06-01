@@ -1,26 +1,38 @@
-from typing import Type
+from collections import defaultdict
+import functools
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Type, Union
+
 import gymnasium as gym
 from gymnasium.spaces import Box
 import numpy as np
 
-from marlpo.algo_ippo import IPPOTrainer, IPPOConfig
-from marlpo.callbacks import MultiAgentDrivingCallbacks
-from marlpo.env.env_wrappers import get_ccenv, get_rllib_compatible_new_gymnasium_api_env
-from copo.torch_copo.utils.train import train
-from copo.torch_copo.utils.utils import get_train_parser
 
 from ray import tune
+from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
 from ray.rllib.algorithms.ppo.ppo_torch_policy import PPOTorchPolicy
+from ray.rllib.connectors.connector import Connector, ConnectorContext
+from ray.rllib.connectors.util import create_connectors_for_policy
+from ray.rllib.core.rl_module import RLModule
 from ray.rllib.evaluation.postprocessing import Postprocessing
 from ray.rllib.evaluation.postprocessing import compute_advantages
 from ray.rllib.models.catalog import ModelCatalog
+from ray.rllib.models.modelv2 import ModelV2
 from ray.rllib.models.torch.misc import SlimFC, AppendBiasLayer, normc_initializer
+from ray.rllib.models.torch.torch_action_dist import TorchDistributionWrapper
 from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.policy.view_requirement import ViewRequirement
-from ray.rllib.utils.annotations import override
+from ray.rllib.utils.annotations import (
+    DeveloperAPI,
+    OverrideToImplementCustomLogic,
+    OverrideToImplementCustomLogic_CallToSuperRecommended,
+    is_overridden,
+    override,
+)
 from ray.rllib.utils.framework import try_import_torch
+from ray.rllib.utils.numpy import convert_to_numpy
+from ray.rllib.utils.threading import with_lock
 from ray.rllib.utils.torch_utils import convert_to_torch_tensor
 from ray.rllib.utils.torch_utils import (
     explained_variance,
@@ -29,23 +41,33 @@ from ray.rllib.utils.torch_utils import (
 )
 from ray.rllib.utils.typing import ModelConfigDict, TensorType, TrainerConfigDict
 
+from marlpo.algo_ippo import IPPOTrainer, IPPOConfig
+from marlpo.callbacks import MultiAgentDrivingCallbacks
+from marlpo.connectors import MyAgentConnector, ModEnvInfoAgentConnector
+from marlpo.env.env_wrappers import get_ccenv, get_rllib_compatible_new_gymnasium_api_env
+from marlpo.utils.utils import print, printPanel
+
+
 from rich import print, inspect
 
 torch, nn = try_import_torch()
 
 CENTRALIZED_CRITIC_OBS = "centralized_critic_obs"
 COUNTERFACTUAL = "counterfactual"
+NEIGHBOUR_INFOS = "neighbour_infos"
+NEIGHBOUR_ACTIONS = "neighbour_actions"
 
 
-class CCPPOConfig(IPPOConfig):
+class ARCCPPOConfig(IPPOConfig):
     def __init__(self, algo_class=None):
-        super().__init__(algo_class=algo_class or CCPPOTrainer)
+        super().__init__(algo_class=algo_class or ARCCPPOTrainer)
         self.counterfactual = True
         self.num_neighbours = 4
         self.fuse_mode = "mf"  # In ["concat", "mf", "none"]
         self.mf_nei_distance = 10
         self.old_value_loss = True
-        self.update_from_dict({"model": {"custom_model": "cc_model"}})
+        self.random_order = True
+        self.update_from_dict({"model": {"custom_model": "arcc_model"}})
 
     def validate(self):
         super().validate()
@@ -75,7 +97,7 @@ def get_centralized_critic_obs_dim(
     return centralized_critic_obs_dim
 
 
-class CCModel(TorchModelV2, nn.Module):
+class ARCCModel(TorchModelV2, nn.Module):
     """Multi-agent model that implements a centralized VF."""
     def __init__(
         self, obs_space: gym.spaces.Space, action_space: gym.spaces.Space, num_outputs: int,
@@ -102,17 +124,26 @@ class CCModel(TorchModelV2, nn.Module):
             num_outputs = num_outputs // 2
 
         layers = []
-        prev_layer_size = int(np.product(obs_space.shape))
         self._logits = None
 
-        # ========== Our Modification: We compute the centralized critic obs size here! ==========
+        # === CC Modification: We compute the centralized critic obs size here! ===
         centralized_critic_obs_dim = self.get_centralized_critic_obs_dim()
 
         # TODO === Fix WARNING catalog.py:617 -- Custom ModelV2 should accept all custom options as **kwargs, instead of expecting them in config['custom_model_config']! === 
-        self.fuse_mode = model_kwargs.get("fuse_mode", None)
-        self.counterfactual = model_kwargs.get("counterfactual", False)
-        self.num_neighbours = model_kwargs.get("num_neighbours", 0)
 
+        custom_model_config = model_config.get('custom_model_config', {})
+
+        self.fuse_mode = custom_model_config.get("fuse_mode", None)
+        self.counterfactual = custom_model_config.get("counterfactual", False)
+        self.num_neighbours = custom_model_config.get("num_neighbours", 0)
+        # === CCModel get custom_model_config Ends ===
+
+        # 加入动作size
+        prev_layer_size = int(np.product(obs_space.shape)) + self.num_neighbours*self.action_space.shape[0]
+        msg = dict(
+            prev_layer_size=prev_layer_size,
+            num_neighbours=self.num_neighbours,
+        )
 
         # Create layers 0 to second-last.
         for size in hiddens[:-1]:
@@ -171,8 +202,8 @@ class CCModel(TorchModelV2, nn.Module):
         if not self.vf_share_layers:
             # Build a parallel set of hidden layers for the value net.
 
-            # ========== Our Modification ==========
-            # Note: We use centralized critic obs size as the input size of critic!
+            # === Our Modification ===
+            # NOTE: We use centralized critic obs size as the input size of critic!
             # prev_vf_layer_size = int(np.product(obs_space.shape))
             prev_vf_layer_size = centralized_critic_obs_dim
             assert prev_vf_layer_size > 0
@@ -191,14 +222,30 @@ class CCModel(TorchModelV2, nn.Module):
             self._value_branch_separate = nn.Sequential(*vf_layers)
 
         self._value_branch = SlimFC(
-            in_size=prev_vf_layer_size, out_size=1, initializer=normc_initializer(0.01), activation_fn=None
+            in_size=prev_vf_layer_size, 
+            out_size=1, 
+            initializer=normc_initializer(0.01), 
+            activation_fn=None
         )
 
         self.view_requirements[CENTRALIZED_CRITIC_OBS] = ViewRequirement(
             space=Box(obs_space.low[0], obs_space.high[0], shape=(centralized_critic_obs_dim, ))
         )
-
-        self.view_requirements[SampleBatch.ACTIONS] = ViewRequirement(space=action_space)
+        self.view_requirements[SampleBatch.ACTIONS] = ViewRequirement(
+            space=action_space
+        )
+        # self.view_requirements[NEIGHBOUR_INFOS] = ViewRequirement(
+        #     # data_col=SampleBatch.ACTIONS, 
+        #     space=Box(action_space.low[0], action_space.high[0], shape=(self.num_neighbours*action_space.shape[0], )),
+        #     # used_for_compute_actions=False
+        # )
+        # self.view_requirements[SampleBatch.INFOS].used_for_compute_actions = True
+        # self.view_requirements[NEIGHBOUR_INFOS] = ViewRequirement()
+        self.view_requirements[NEIGHBOUR_ACTIONS] = ViewRequirement(
+            space=Box(action_space.low[0], action_space.high[0], shape=(self.num_neighbours*action_space.shape[0], )), 
+            used_for_compute_actions=False
+        )
+        
 
     def get_centralized_critic_obs_dim(self):
         return get_centralized_critic_obs_dim(
@@ -209,9 +256,24 @@ class CCModel(TorchModelV2, nn.Module):
 
     @override(TorchModelV2)
     def forward(self, input_dict, state, seq_lens):
-        obs = input_dict["obs_flat"].float()
+        # print('*** ***' * 10)
+        # print('[ARCCModel] input_dict.keys():')
+        # print(input_dict.keys())
+
+        assert NEIGHBOUR_ACTIONS in input_dict
+        nei_actions = input_dict[NEIGHBOUR_ACTIONS] # shape(BatchSize, 8)
+
+
+        obs = input_dict["obs_flat"].float() # shape(BatchSize, 91)
         obs = obs.reshape(obs.shape[0], -1)
-        features = self._hidden_layers(obs)
+
+        
+        # printPanel(str(nei_actions), 'nei_actions')
+        obs_cat = torch.cat((obs, nei_actions), -1) # shape (1, 91 + action_dim*num_neighbours) == (1, 99)
+
+        # printPanel({'obs_cat': obs_cat.shape}, title="ARCModel.forward()")
+
+        features = self._hidden_layers(obs_cat)
         logits = self._logits(features) if self._logits else self._features
         if self.free_log_std:
             logits = self._append_free_log_std(logits)
@@ -229,7 +291,7 @@ class CCModel(TorchModelV2, nn.Module):
         return torch.reshape(self._value_branch(self._value_branch_separate(obs)), [-1])
 
 
-ModelCatalog.register_custom_model("cc_model", CCModel)
+ModelCatalog.register_custom_model("arcc_model", ARCCModel)
 
 
 def concat_ccppo_process(policy, sample_batch, other_agent_batches, odim, adim, other_info_dim):
@@ -241,8 +303,10 @@ def concat_ccppo_process(policy, sample_batch, other_agent_batches, odim, adim, 
         # "neighbours" may not be in sample_batch['infos'][index]:
         # neighbours = sample_batch['infos'][index]["neighbours"]
         neighbours = sample_batch['infos'][index].get("neighbours", [])
-        print(sample_batch.keys())
-        print('neighbours:', neighbours)
+        # print(sample_batch.keys())
+        # print('neighbours:', neighbours)
+        # print(other_agent_batches)
+        # print('concat_ccppo_process...')
 
         # Note that neighbours returned by the environment are already sorted based on their
         # distance to the ego vehicle whose info is being used here.
@@ -333,15 +397,195 @@ def mean_field_ccppo_process(policy, sample_batch, other_agent_batches, odim, ad
     return sample_batch
 
 
-def get_ccppo_env(env_class):
-    return get_rllib_compatible_new_gymnasium_api_env(get_ccenv(env_class))
+def get_ccppo_env(env_class, return_class=False):
+    return get_rllib_compatible_new_gymnasium_api_env(get_ccenv(env_class), return_class=return_class)
 
 
-class CCPPOPolicy(PPOTorchPolicy):
+class ARCCPPOPolicy(PPOTorchPolicy):
+    count = 0
+    def __init__(self, observation_space, action_space, config):
+        super().__init__(observation_space, action_space, config)
+
+        create_connectors_for_policy(self, AlgorithmConfig.from_dict(self.config))
+
+        # self.agent_connectors.append(MyAgentConnector(ConnectorContext.from_policy(self)))
+        self.agent_connectors.insert_before(
+            "ViewRequirementAgentConnector", 
+            ModEnvInfoAgentConnector(ConnectorContext.from_policy(self))
+        )
+
+        # inspect(self.agent_connectors)
+        
+        self.view_requirements[SampleBatch.INFOS].used_for_compute_actions = True
+        # self.view_requirements[NEIGHBOUR_INFOS] = ViewRequirement()
+
+        self.last_computed_neighbour_actions = None # shape[BatchSize, NeighbourActionsDim], e.g. (1, 8) or (32, 8)
+
     def extra_action_out(self, input_dict, state_batches, model, action_dist):
-        return {}
+        return {NEIGHBOUR_ACTIONS: self.last_computed_neighbour_actions}
+        # return {}
+
+
+    @override(PPOTorchPolicy)
+    def action_sampler_fn(
+        self, 
+        model: ModelV2, 
+        *, 
+        obs_batch: TensorType, 
+        state_batches: TensorType, 
+        **kwargs
+    ) -> Tuple[TensorType, TensorType, TensorType, List[TensorType]]:
+        """Custom function for sampling new actions given policy.
+
+        Args:
+            model: Underlying model.
+            obs_batch: Observation tensor batch.
+                {
+                    SampleBatch.OBS: torch.Size([32, 91])
+                    SampleBatch.INFOS: numpy.ndarray (num_agents, ) of dict
+                    NEIGHBOUR_INFOS: torch.Size([32])
+                    NEIGHBOUR_ACTIONS: torch.Size([32, 8])
+                } 
+
+            state_batches: Action sampling state batch.
+            **kwargs: {'explore': bool, 'timestep': int}
+
+        Returns:
+            Sampled action
+            Log-likelihood
+            # Action distribution inputs
+            Updated state
+        """
+        input_dict = obs_batch
+        assert SampleBatch.INFOS in input_dict
+        infos = input_dict[SampleBatch.INFOS]
+
+        # self.last_computed_neighbour_actions = None # 重置
+
+        num_neighbours = self.config.get('num_neighbours')
+
+
+        msg={}
+        msg['input_dict'] = input_dict
+        msg[SampleBatch.INFOS+'.type'] = type(infos)
+        if isinstance(infos, np.ndarray) or isinstance(infos, torch.Tensor):
+            msg[SampleBatch.INFOS+'.shape'] = infos.shape
+            msg[SampleBatch.INFOS+'[0]'] = infos[0]
+        assert isinstance(infos, np.ndarray) or isinstance(infos, torch.Tensor)
+        # msg['NEIGHBOUR_INFOS.type'] = type(input_dict[NEIGHBOUR_INFOS])
+        # msg['NEIGHBOUR_INFOS.shape'] = input_dict[NEIGHBOUR_INFOS].shape
+        # msg['NEIGHBOUR_INFOS[0]'] = input_dict[NEIGHBOUR_INFOS][0]
+        # msg['NEIGHBOUR_ACTIONS.type'] = type(input_dict[NEIGHBOUR_ACTIONS])
+        # msg['NEIGHBOUR_ACTIONS.shape'] = input_dict[NEIGHBOUR_ACTIONS].shape
+        # msg['NEIGHBOUR_ACTIONS[0]'] = input_dict[NEIGHBOUR_ACTIONS][0]
+        msg.update(kwargs)
+        # printPanel(msg, title=f'{self.__class__.__name__}.action_sampler_fn()')
+
+
+        # Call the exploration before_compute_actions hook.
+        explore = kwargs.get('explore', None)
+        timestep = kwargs.get('timestep', None)
+        self.exploration.before_compute_actions(explore=explore, timestep=timestep)
+
+        # assert NEIGHBOUR_ACTIONS in input_dict
+        # assert len(input_dict[SampleBatch.OBS]) == len(input_dict[NEIGHBOUR_INFOS])
+        assert state_batches == [] or state_batches == None
+        assert not is_overridden(self.action_distribution_fn)
+        dist_class = self.dist_class
+
+
+        nei_info_list = [] # [ {}, {}, ... x num_agents]
+        for info in infos:
+            # for ppo_torch_policy._initialize_loss_from_dummy_batch() contains tensor(0.)
+            # (32, ): [0.0, ... x 32]
+            if isinstance(info, torch.Tensor) and info == torch.tensor(0.0):
+                nei_info_list.append({})
+            elif isinstance(info, dict):
+                nei_info_list.append(info)
+
+        # shape: torch.Size([num_agents, 91]) -> ([1, 91] x num_agents)
+        obs_chunk_list = torch.split(input_dict[SampleBatch.OBS], 1) 
+
+        # {agent_id: tensor.shape(2)}
+        all_agent_actions_dict = defaultdict(lambda: torch.zeros((self.model.action_space.shape[0])))
+        # all_agent_logps = {}
+        actions = []
+        logps = []
+        dist_inputs = []
+        all_nei_actions = []
+        cnt = 0
+        for o, info in zip(obs_chunk_list, nei_info_list):
+            agent_id = info.get('agent_id', f'agent{cnt}')
+            msg = {}
+            msg['cnt'] = cnt
+            msg['agent_id'] = agent_id
+            msg['o.shape'] = o.shape
+            msg['info'] = info
+
+            cnt += 1
+
+            nei_actions = torch.zeros((num_neighbours, self.model.action_space.shape[0])) # shape(num_nei, 2)
+
+            for i, nei_id in zip(range(num_neighbours), info.get('neighbours', [])):
+                nei_actions[i] = all_agent_actions_dict[nei_id]
+            nei_actions_flat = torch.reshape(nei_actions, (1,-1)) # shape(1, num_nei x 2)
+            all_nei_actions.append(nei_actions_flat)
+            msg['nei_actions.shape'] = nei_actions.shape
+            msg['nei_actions'] = nei_actions
+            # o_cat = torch.cat((o, nei_actions_flat), -1) # shape (1, 91 + action_dim*num_neighbours)
+
+            # msg["o_cat"] = o_cat.shape
+
+            model_input_dict = {
+                SampleBatch.OBS: o,
+                NEIGHBOUR_ACTIONS: nei_actions_flat,
+            }
+            dist_input, state_out = self.model(model_input_dict, state_batches)
+            dist_inputs.append(dist_input)
+            action_dist = dist_class(dist_input, self.model)
+            # Get the exploration action from the forward results.
+            action, logp = self.exploration.get_exploration_action(
+                action_distribution=action_dist, timestep=timestep, explore=explore
+            )
+            all_agent_actions_dict[agent_id] = action
+            # all_agent_logps[agent_id] = logp
+
+            actions.append(action)
+            logps.append(logp)
+
+            msg['sampled_action'] = action
+            msg['logp'] = logp
+            printPanel(msg, 'compute single action done!')
+
+        # inspect(input_dict[SampleBatch.OBS])
+
+        actions = torch.cat(actions, 0)
+        logps = torch.cat(logps, 0)
+        dist_inputs = torch.cat(dist_inputs, 0)
+        self.last_computed_neighbour_actions = torch.cat(all_nei_actions, 0)
+
+        msg = {}
+        msg['actions.shape'] = actions.shape
+        # msg['actions'] = actions
+        msg['logps.shape'] = logps.shape
+        # msg['logps'] = logps
+        msg['dist_inputs.shape'] = dist_inputs.shape
+        # msg['dist_inputs'] = dist_inputs
+        msg['last_computed_neighbour_actions.shape'] = self.last_computed_neighbour_actions.shape
+        msg['last_computed_neighbour_actions'] = self.last_computed_neighbour_actions
+        # printPanel(msg, title='model sample actions done!')
+
+        return actions, logps, dist_inputs, state_batches
+
 
     def postprocess_trajectory(self, sample_batch, other_agent_batches=None, episode=None):
+        msg = {}
+        msg['sample_batch'] = sample_batch
+        msg['other_agent_batches'] = other_agent_batches
+        msg['episode'] = episode
+        # printPanel(msg, f'{self.__class__.__name__}.postprocess_trajectory()')
+        # print('sample_batch', sample_batch)
+        # print('other_agent_batches', other_agent_batches)
         with torch.no_grad():
             o = sample_batch[SampleBatch.CUR_OBS]
             odim = o.shape[1]
@@ -498,57 +742,12 @@ class CCPPOPolicy(PPOTorchPolicy):
         return total_loss
 
 
-class CCPPOTrainer(IPPOTrainer):
+class ARCCPPOTrainer(IPPOTrainer):
     @classmethod
     def get_default_config(cls):
-        return CCPPOConfig()
+        return ARCCPPOConfig()
 
     def get_default_policy_class(self, config: TrainerConfigDict) -> Type[Policy]:
         assert config["framework"] == "torch"
-        return CCPPOPolicy
+        return ARCCPPOPolicy
 
-
-def _test():
-    # Testing only!
-    from metadrive.envs.marl_envs import MultiAgentRoundaboutEnv
-
-    parser = get_train_parser()
-    args = parser.parse_args()
-    stop = {"timesteps_total": 200_0000}
-    exp_name = "test_mappo" if not args.exp_name else args.exp_name
-    config = dict(
-        env=get_ccppo_env(MultiAgentRoundaboutEnv),
-        env_config=dict(
-            start_seed=tune.grid_search([5000]),
-            num_agents=10,
-        ),
-        num_sgd_iter=1,
-        rollout_fragment_length=200,
-        train_batch_size=400,
-        sgd_minibatch_size=256,
-        num_workers=0,
-        # **{COUNTERFACTUAL: tune.grid_search([True, False])},
-        **{COUNTERFACTUAL: tune.grid_search([
-            True,
-        ])},
-        # fuse_mode=tune.grid_search(["concat", "mf"])
-        fuse_mode=tune.grid_search(["mf"])
-    )
-    results = train(
-        CCPPOTrainer,
-        config=config,  # Do not use validate_config_add_multiagent here!
-        checkpoint_freq=0,  # Don't save checkpoint is set to 0.
-        keep_checkpoints_num=0,
-        stop=stop,
-        num_gpus=args.num_gpus,
-        num_seeds=1,
-        max_failures=0,
-        exp_name=exp_name,
-        custom_callback=MultiAgentDrivingCallbacks,
-        test_mode=True,
-        local_mode=True
-    )
-
-
-if __name__ == "__main__":
-    _test()

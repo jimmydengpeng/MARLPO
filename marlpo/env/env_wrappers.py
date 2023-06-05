@@ -167,8 +167,6 @@ class CCEnv:
                 self.distance_map[k2][k1] = distance
 
 
-
-
 def get_ccenv(env_class):
     name = env_class.__name__
 
@@ -180,9 +178,7 @@ def get_ccenv(env_class):
     return TMP
 
 
-
-
-def get_rllib_compatible_new_gymnasium_api_env(env_class, return_class=False):
+def get_rllib_compatible_gymnasium_api_env(env_class, return_class=False):
     """
     Args:
         env_class: A MetaDrive env class
@@ -200,6 +196,22 @@ def get_rllib_compatible_new_gymnasium_api_env(env_class, return_class=False):
             self.reward_range = getattr(self, "reward_range", None)
             self.spec = getattr(self, "spec", None)
 
+        # # overide(MetaDrive: metadrive/envs/base_env.py: BaseEnv)
+        # def _get_reset_return(self):
+        #     print('=== in _get_reset_return() ===')
+        #     ret = {}
+        #     info = {}
+        #     self.engine.after_step()
+        #     for v_id, v in self.vehicles.items():
+        #         self.observations[v_id].reset(self, v)
+        #         ret[v_id] = self.observations[v_id].observe(v)
+
+        #     if self.is_multi_agent:
+        #         return ret, info
+        #     else:
+        #         return self._wrap_as_single_agent(ret), info
+
+
         def reset(
                 self, 
                 *,
@@ -208,9 +220,16 @@ def get_rllib_compatible_new_gymnasium_api_env(env_class, return_class=False):
             ):
             # o = super(NewAPIMAEnv, self).reset(seed=seed, options=options)
             o = super(NewAPIMAEnv, self).reset(force_seed=seed)
-            infos = {}
-            for k in o:
-                infos[k] = {}
+            
+            # add neighbour infos
+            self._update_distance_map()
+            infos = defaultdict(dict)
+            for agent in o:
+                infos[agent]["agent_id"] = agent
+                neighbours, nei_distances = self._find_in_range(agent, self.config["neighbours_distance"])
+                infos[agent]["neighbours"] = neighbours
+                infos[agent]["neighbours_distance"] = nei_distances
+
             return o, infos
 
         def step(self, action):
@@ -240,12 +259,16 @@ def get_rllib_compatible_new_gymnasium_api_env(env_class, return_class=False):
         return env_name, NewAPIMAEnv
 
     return env_name
+    
+
+def get_ccppo_env(env_class, return_class=False):
+    return get_rllib_compatible_gymnasium_api_env(get_ccenv(env_class), return_class=return_class)
+
 
 
 if __name__ == "__main__":
     from rich import print
     from metadrive.envs.marl_envs import MultiAgentRoundaboutEnv
-    from marlpo.algo_ccppo import get_ccppo_env
 
     config = dict(
         use_render=False,
@@ -259,9 +282,13 @@ if __name__ == "__main__":
     # cc_metadrive_env = get_ccenv(MultiAgentRoundaboutEnv)
     # cc_metadrive_new_api_env_str, cc_metadrive_new_api_env_cls = get_rllib_compatible_new_gymnasium_api_env(cc_metadrive_env, return_class=True)
     # env = cc_metadrive_new_api_env_cls(config)
-    env = get_ccppo_env(MultiAgentRoundaboutEnv)
-    print(env.reset())
-    # exit()
+    env_name, env_cls = get_ccppo_env(MultiAgentRoundaboutEnv, return_class=True)
+    env = env_cls(config)
+    o, i = env.reset()
+    
+    print(i)
+    # print(dir(env))
+    # print(dir(env))
     for i in range(2000):
         actions = {}
         for v in env.vehicles:

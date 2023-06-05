@@ -9,7 +9,7 @@ from metadrive import (
 # from copo.torch_copo.utils.callbacks import MultiAgentDrivingCallbacks
 from marlpo.algo_arippo import ARIPPOConfig, ARIPPOTrainer
 from marlpo.train.train import train
-from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
+from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env
 # from copo.torch_copo.utils.utils import get_train_parser
 from marlpo.callbacks import MultiAgentDrivingCallbacks
 from marlpo.utils.utils import get_other_training_resources, get_num_workers
@@ -45,15 +45,15 @@ if __name__ == "__main__":
     # We can grid-search the environmental parameters!
     if TRAIN_ALL_ENV:
         env = tune.grid_search([
-            get_rllib_compatible_new_gymnasium_api_env(MultiAgentRoundaboutEnv),
-            get_rllib_compatible_new_gymnasium_api_env(MultiAgentIntersectionEnv),
-            get_rllib_compatible_new_gymnasium_api_env(MultiAgentTollgateEnv),
-            get_rllib_compatible_new_gymnasium_api_env(MultiAgentBottleneckEnv),
-            get_rllib_compatible_new_gymnasium_api_env(MultiAgentParkingLotEnv),
+            get_rllib_compatible_gymnasium_api_env(MultiAgentRoundaboutEnv),
+            get_rllib_compatible_gymnasium_api_env(MultiAgentIntersectionEnv),
+            get_rllib_compatible_gymnasium_api_env(MultiAgentTollgateEnv),
+            get_rllib_compatible_gymnasium_api_env(MultiAgentBottleneckEnv),
+            get_rllib_compatible_gymnasium_api_env(MultiAgentParkingLotEnv),
         ])
     else:
         # Convert MetdDriveEnv to RLlib compatible env with gymnasium API
-        env = get_rllib_compatible_new_gymnasium_api_env(scenes[SCENE])
+        env = get_rllib_compatible_gymnasium_api_env(scenes[SCENE])
 
 
     # === Environmental Setting ===

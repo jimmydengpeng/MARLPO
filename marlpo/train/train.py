@@ -45,7 +45,7 @@ def train(
     else:
         checkpoint_config = air.CheckpointConfig(checkpoint_at_end=True)
 
-    verbose = 3 if test_mode else 1
+    verbose = 1 if test_mode else 1
 
     tuner = tune.Tuner(
         trainer,

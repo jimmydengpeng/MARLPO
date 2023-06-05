@@ -16,7 +16,7 @@ from marlpo.algo_arippo import ARIPPOConfig, ARIPPOTrainer
 from marlpo.algo_ccppo import CCPPOConfig, CCPPOTrainer
 from marlpo.algo_arccppo import ARCCPPOConfig, ARCCPPOTrainer, get_ccppo_env
 from marlpo.callbacks import MultiAgentDrivingCallbacks
-from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
+from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env
 from marlpo.utils.utils import print, inspect, get_other_training_resources, get_num_workers
 
 
@@ -25,20 +25,24 @@ from marlpo.utils.utils import print, inspect, get_other_training_resources, get
 
 # SCENE = "roundabout"
 SCENE = "intersection"
-# ALGO = 'ARPPO'
 # ALGO = 'IPPO'
+# ALGO = 'ARPPO'
 # ALGO = 'CCPPO'
 ALGO = 'ARCCPPO'
 FUSE_MODE = 'concat' 
+RANDOM_ORDER = True
 # FUSE_MODE = 'mf'
 
 SEED = 5000
 NUM_AGENTS = 40
 
+EVAL_ENV_NUM_AGENTS = NUM_AGENTS
+EVAL_ENV_NUM_AGENTS = 30
 
 ALL_CKP = dict(
     # IPPO_4a_5000="exp_results/IPPO_CC_Roundabout_seed=5000_4agents/IPPOTrainer_MultiAgentRoundaboutEnv_b9bb5_00000_0_start_seed=5000_2023-05-18_20-22-58/checkpoint_000977",
     IPPO_4a_5000="/Users/jimmy/ray_results/IPPO_Central_Value_Roundabout_8seeds/IPPOTrainer_MultiAgentRoundaboutEnv_ac78b_00000_0_start_seed=5000_2023-04-20_18-04-01/checkpoint_000977",
+    IPPO_40a_5000_intersection='exp_results/IPPO_Intersection_seed=5000_40agents/IPPOTrainer_MultiAgentIntersectionEnv_437fb_00000_0_start_seed=5000_2023-06-01_17-39-54/checkpoint_000977',
     ARPPO_4a_5000="/Users/jimmy/ray_results/ARIPPO_V0_Roundabout_1seeds_NumAgentsSearch_4agents/ARIPPOTrainer_MultiAgentRoundaboutEnv_b0e1f_00000_0_start_seed=5000_2023-05-18_14-10-30/checkpoint_000977",
     ARPPO_40a_5000="/Users/jimmy/ray_results/ARIPPO_V0_Roundabout_8seeds/ARIPPOTrainer_MultiAgentRoundaboutEnv_cc1dc_00000_0_start_seed=5000_2023-05-17_23-02-09/checkpoint_000977",
     ARPPO_32a_5000="/Users/jimmy/ray_results/ARIPPO_V0_Roundabout_seed=5000_NumAgentsSearch_32agents/ARIPPOTrainer_MultiAgentRoundaboutEnv_11848_00000_0_start_seed=5000_2023-05-18_15-53-25/checkpoint_000977",
@@ -57,6 +61,7 @@ ALL_CKP = dict(
     ARCCPPO_concat_40a_5000="exp_results/ARCCPPO_Roundabout_seed=5000_40agents_V0/ARCCPPOTrainer_MultiAgentRoundaboutEnv_51fd6_00001_1_start_seed=5000_fuse_mode=concat_2023-05-31_15-02-05/checkpoint_000977",
     ARCCPPO_mf_40a_5000_intersection="exp_results/ARCCPPO_Intersection_seed=5000_40agents_V0/ARCCPPOTrainer_MultiAgentIntersectionEnv_3b3e0_00000_0_start_seed=5000_fuse_mode=mf_2023-05-31_12-04-25/checkpoint_000977",
     ARCCPPO_concat_40a_5000_intersection="exp_results/ARCCPPO_Intersection_seed=5000_40agents_V1/ARCCPPOTrainer_MultiAgentIntersectionEnv_e59bc_00002_2_counterfactual=True_start_seed=5000_fuse_mode=concat_2023-06-01_01-31-52/checkpoint_000977",
+    ARCCPPO_concat_ro_40a_5000_intersection='exp_results/ARCCPPO_Roundabout_seed=5000_40agents_ro/ARCCPPOTrainer_MultiAgentRoundaboutEnv_eda47_00001_1_start_seed=5000_fuse_mode=concat_random_order=True_2023-06-02_21-55-34/checkpoint_000750'
 )
 # ckp = 'ARPPO_32a_5000'
 
@@ -96,10 +101,16 @@ elif  ALGO == 'ARCCPPO':
         fuse_mode=FUSE_MODE,
     )
     ALGO = ALGO + '_' + FUSE_MODE
+    if RANDOM_ORDER:
+        ALGO += '_ro'
+        OTHER_CONFIG.update(dict(
+            random_order=RANDOM_ORDER
+        ))
 
 else:
     raise NotImplementedError
 
+# === get ckp path ===
 ckp = "_".join([ALGO, str(NUM_AGENTS)+'a', str(SEED)])
 if SCENE == 'intersection':
     ckp = ckp + '_' + SCENE
@@ -226,16 +237,17 @@ if __name__ == "__main__":
     if 'ARCCPPO' in ALGO:
         env, env_cls = get_ccppo_env(scenes[SCENE], return_class=True)
     else:
-        env, env_cls = get_rllib_compatible_new_gymnasium_api_env(scenes[SCENE], return_class=True)
+        env, env_cls = get_rllib_compatible_gymnasium_api_env(scenes[SCENE], return_class=True)
 
    # === Environmental Setting ===
     env_config = dict(
         use_render=False,
-        num_agents=NUM_AGENTS,
+        num_agents=EVAL_ENV_NUM_AGENTS,
         return_single_space=True,
         # "manual_control": True,
         # crash_done=True,
         # "agent_policy": ManualControllableIDMPolicy
+        # delay_done=0,
         start_seed=SEED
     )
     

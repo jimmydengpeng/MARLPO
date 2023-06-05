@@ -12,7 +12,7 @@ from metadrive import (
 # from copo.torch_copo.utils.callbacks import MultiAgentDrivingCallbacks
 from marlpo.algo_ippo import IPPOConfig, IPPOTrainer
 from marlpo.train.train import train
-from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
+from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env
 # from copo.torch_copo.utils.utils import get_train_parser
 from marlpo.callbacks import MultiAgentDrivingCallbacks
 from marlpo.utils.utils import get_other_training_resources, get_num_workers
@@ -51,7 +51,7 @@ if __name__ == "__main__":
 
     if TEST: SCENE = "roundabout" 
 
-    env = get_rllib_compatible_new_gymnasium_api_env(scenes[SCENE])
+    env = get_rllib_compatible_gymnasium_api_env(scenes[SCENE])
 
     # === Environmental Setting ===
     env_config = dict(

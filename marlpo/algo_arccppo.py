@@ -1,5 +1,5 @@
 from collections import defaultdict
-import functools
+import functools, random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Type, Union
 
 import gymnasium as gym
@@ -44,7 +44,7 @@ from ray.rllib.utils.typing import ModelConfigDict, TensorType, TrainerConfigDic
 from marlpo.algo_ippo import IPPOTrainer, IPPOConfig
 from marlpo.callbacks import MultiAgentDrivingCallbacks
 from marlpo.connectors import MyAgentConnector, ModEnvInfoAgentConnector
-from marlpo.env.env_wrappers import get_ccenv, get_rllib_compatible_new_gymnasium_api_env
+from marlpo.env.env_wrappers import get_ccenv, get_rllib_compatible_gymnasium_api_env
 from marlpo.utils.utils import print, printPanel
 
 
@@ -66,7 +66,7 @@ class ARCCPPOConfig(IPPOConfig):
         self.fuse_mode = "mf"  # In ["concat", "mf", "none"]
         self.mf_nei_distance = 10
         self.old_value_loss = True
-        self.random_order = True
+        self.random_order = True # ['none', 'random', 'edge-ascend', 'edge-descend' ]
         self.update_from_dict({"model": {"custom_model": "arcc_model"}})
 
     def validate(self):
@@ -398,7 +398,7 @@ def mean_field_ccppo_process(policy, sample_batch, other_agent_batches, odim, ad
 
 
 def get_ccppo_env(env_class, return_class=False):
-    return get_rllib_compatible_new_gymnasium_api_env(get_ccenv(env_class), return_class=return_class)
+    return get_rllib_compatible_gymnasium_api_env(get_ccenv(env_class), return_class=return_class)
 
 
 class ARCCPPOPolicy(PPOTorchPolicy):
@@ -457,20 +457,26 @@ class ARCCPPOPolicy(PPOTorchPolicy):
             Updated state
         """
         input_dict = obs_batch
+        assert state_batches == [] or state_batches == None
+        assert not is_overridden(self.action_distribution_fn)
         assert SampleBatch.INFOS in input_dict
         infos = input_dict[SampleBatch.INFOS]
-
+        dist_class = self.dist_class
+        num_neighbours = self.config.get('num_neighbours')
         # self.last_computed_neighbour_actions = None # 重置
 
-        num_neighbours = self.config.get('num_neighbours')
 
-
-        msg={}
-        msg['input_dict'] = input_dict
-        msg[SampleBatch.INFOS+'.type'] = type(infos)
+        # == print input msg ==
+        _in_msg={}
+        _in_msg['input_dict'] = input_dict
+        _in_msg[SampleBatch.INFOS+'.type'] = type(infos)
         if isinstance(infos, np.ndarray) or isinstance(infos, torch.Tensor):
-            msg[SampleBatch.INFOS+'.shape'] = infos.shape
-            msg[SampleBatch.INFOS+'[0]'] = infos[0]
+            _in_msg[SampleBatch.INFOS+'.shape'] = infos.shape
+            if isinstance(infos[0], dict): 
+                _in_msg['all_agents'] = []
+                for idx, info in enumerate(infos):
+                   _in_msg['all_agents'].append(info.get('agent_id', f'dummy_agent{idx}'))
+            # msg[SampleBatch.INFOS+'[0]'] = infos[0]
         assert isinstance(infos, np.ndarray) or isinstance(infos, torch.Tensor)
         # msg['NEIGHBOUR_INFOS.type'] = type(input_dict[NEIGHBOUR_INFOS])
         # msg['NEIGHBOUR_INFOS.shape'] = input_dict[NEIGHBOUR_INFOS].shape
@@ -478,49 +484,78 @@ class ARCCPPOPolicy(PPOTorchPolicy):
         # msg['NEIGHBOUR_ACTIONS.type'] = type(input_dict[NEIGHBOUR_ACTIONS])
         # msg['NEIGHBOUR_ACTIONS.shape'] = input_dict[NEIGHBOUR_ACTIONS].shape
         # msg['NEIGHBOUR_ACTIONS[0]'] = input_dict[NEIGHBOUR_ACTIONS][0]
-        msg.update(kwargs)
-        # printPanel(msg, title=f'{self.__class__.__name__}.action_sampler_fn()')
+        _in_msg.update(kwargs)
+        _in_msg['random_order'] = self.config.get('random_order', False)
+        # msg['random_order'] = self.config.random_order
+        # printPanel(_in_msg, title=f'{self.__class__.__name__}.action_sampler_fn()')
 
 
-        # Call the exploration before_compute_actions hook.
+        # === Call the exploration before_compute_actions hook. ===
         explore = kwargs.get('explore', None)
         timestep = kwargs.get('timestep', None)
         self.exploration.before_compute_actions(explore=explore, timestep=timestep)
 
         # assert NEIGHBOUR_ACTIONS in input_dict
-        # assert len(input_dict[SampleBatch.OBS]) == len(input_dict[NEIGHBOUR_INFOS])
-        assert state_batches == [] or state_batches == None
-        assert not is_overridden(self.action_distribution_fn)
-        dist_class = self.dist_class
 
+        # === 处理 SampleBatch.obs 成 list ===
+        #  shape: torch.Size(num_agents, 91) -> [ torch.Size(1, 91) x num_agents ]
+        obs_chunk_list = torch.split(input_dict[SampleBatch.OBS], 1) 
 
+        # === 处理 SampleBatch.infos 成 list ===
         nei_info_list = [] # [ {}, {}, ... x num_agents]
         for info in infos:
-            # for ppo_torch_policy._initialize_loss_from_dummy_batch() contains tensor(0.)
-            # (32, ): [0.0, ... x 32]
+            # NOTE ppo_torch_policy._initialize_loss_from_dummy_batch()'s info contains tensor(0.)
+            # e.g. (32, ): [0.0, ... x 32]
             if isinstance(info, torch.Tensor) and info == torch.tensor(0.0):
                 nei_info_list.append({})
             elif isinstance(info, dict):
                 nei_info_list.append(info)
+            else:
+                raise NotImplementedError
 
-        # shape: torch.Size([num_agents, 91]) -> ([1, 91] x num_agents)
-        obs_chunk_list = torch.split(input_dict[SampleBatch.OBS], 1) 
 
-        # {agent_id: tensor.shape(2)}
-        all_agent_actions_dict = defaultdict(lambda: torch.zeros((self.model.action_space.shape[0])))
+        if len(obs_chunk_list) != len(nei_info_list):
+            printPanel(f'len(obs_chunk_list) {len(obs_chunk_list)} != len(nei_info_list) {len(nei_info_list)}', title='[Warning] action_sampler_fn()')
+
+        obs_info_list = []
+        for obs, info in zip(obs_chunk_list, nei_info_list):
+            obs_info_list.append((obs, info))
+
+        
+        _out_msg = {}
+        _out_msg['unsorted_obs_info_list.len'] = len(obs_info_list)
+        _out_msg['unsorted'] = [ (t[1].get('agent_id', 'agent0'), len(t[1].get('neighbours', []))) for t in obs_info_list]
+        # 生成random_order X
+        # 按照邻居数量的多少从多到少排序
+        # 生成random_order X
+        
+        # 按照邻居数量的多少从多到少排序
+        if self.config.get('random_order', False):
+            random.shuffle(obs_info_list)
+            # msg['unsorted_obs_info_list'] = unsorted_obs_info_list
+            _msg = {}
+            _msg['unsorted'] = [ (t[1].get('agent_id', 'agent0'), len(t[1].get('neighbours', []))) for t in obs_info_list]
+            obs_info_list.sort(key=lambda x: len(x[1].get('neighbours', [])), reverse=False)
+            _msg['sorted'] = [(t[1].get('agent_id', 'agent0'), len(t[1].get('neighbours', []))) for t in obs_info_list]
+            # printPanel(_msg, title=f'{self.__class__.__name__} generate random_order done!')
+        else:
+            random.shuffle(obs_info_list)
+
+
+        all_agent_actions_dict = defaultdict(lambda: torch.zeros((self.model.action_space.shape[0]))) # {agent_id: tensor.shape(2)} # for res_actions
+        all_agents_nei_actions_dict = {} # for self.extra_action_out()
+        all_agent_logps_dict = {} # for return
+        all_agent_dist_inputs_dict = {} # for return
         # all_agent_logps = {}
-        actions = []
-        logps = []
-        dist_inputs = []
-        all_nei_actions = []
+        # dist_inputs = []
         cnt = 0
-        for o, info in zip(obs_chunk_list, nei_info_list):
+        for obs, info in obs_info_list:
             agent_id = info.get('agent_id', f'agent{cnt}')
-            msg = {}
-            msg['cnt'] = cnt
-            msg['agent_id'] = agent_id
-            msg['o.shape'] = o.shape
-            msg['info'] = info
+            _msg = {}
+            _msg['cnt'] = cnt
+            _msg['agent_id'] = agent_id
+            _msg['o.shape'] = obs.shape
+            _msg['info'] = info
 
             cnt += 1
 
@@ -529,53 +564,69 @@ class ARCCPPOPolicy(PPOTorchPolicy):
             for i, nei_id in zip(range(num_neighbours), info.get('neighbours', [])):
                 nei_actions[i] = all_agent_actions_dict[nei_id]
             nei_actions_flat = torch.reshape(nei_actions, (1,-1)) # shape(1, num_nei x 2)
-            all_nei_actions.append(nei_actions_flat)
-            msg['nei_actions.shape'] = nei_actions.shape
-            msg['nei_actions'] = nei_actions
+            all_agents_nei_actions_dict[agent_id] = (nei_actions_flat)
+            _msg['nei_actions.shape'] = nei_actions.shape
+            _msg['nei_actions'] = nei_actions
             # o_cat = torch.cat((o, nei_actions_flat), -1) # shape (1, 91 + action_dim*num_neighbours)
 
             # msg["o_cat"] = o_cat.shape
 
             model_input_dict = {
-                SampleBatch.OBS: o,
+                SampleBatch.OBS: obs,
                 NEIGHBOUR_ACTIONS: nei_actions_flat,
             }
             dist_input, state_out = self.model(model_input_dict, state_batches)
-            dist_inputs.append(dist_input)
+            # dist_inputs.append(dist_input)
+            all_agent_dist_inputs_dict[agent_id] = dist_input
             action_dist = dist_class(dist_input, self.model)
             # Get the exploration action from the forward results.
             action, logp = self.exploration.get_exploration_action(
                 action_distribution=action_dist, timestep=timestep, explore=explore
             )
             all_agent_actions_dict[agent_id] = action
+            all_agent_logps_dict[agent_id] = logp
             # all_agent_logps[agent_id] = logp
 
-            actions.append(action)
-            logps.append(logp)
+            # actions.append(action)
+            # logps.append(logp)
 
-            msg['sampled_action'] = action
-            msg['logp'] = logp
-            printPanel(msg, 'compute single action done!')
+            _msg['sampled_action'] = action
+            _msg['logp'] = logp
+            _msg['all_agent_actions_dict'] = all_agent_actions_dict
+            # printPanel(_msg, 'compute single action done!')
 
         # inspect(input_dict[SampleBatch.OBS])
 
-        actions = torch.cat(actions, 0)
+
+        res_actions = []
+        all_agents_nei_actions_list = []
+        logps = []
+        dist_inputs = []
+        for info in nei_info_list:
+            agent_id = info.get('agent_id', 'agent0')
+            res_actions.append(all_agent_actions_dict[agent_id])
+            all_agents_nei_actions_list.append(all_agents_nei_actions_dict[agent_id])
+            logps.append(all_agent_logps_dict[agent_id])
+            dist_inputs.append(all_agent_dist_inputs_dict[agent_id])
+
+        res_actions = torch.cat(res_actions, 0)
         logps = torch.cat(logps, 0)
         dist_inputs = torch.cat(dist_inputs, 0)
-        self.last_computed_neighbour_actions = torch.cat(all_nei_actions, 0)
+        self.last_computed_neighbour_actions = torch.cat(all_agents_nei_actions_list, 0)
 
-        msg = {}
-        msg['actions.shape'] = actions.shape
-        # msg['actions'] = actions
-        msg['logps.shape'] = logps.shape
+        # msg = {}
+        _out_msg['actions.shape'] = res_actions.shape
+        _out_msg['actions'] = res_actions
+        _out_msg['logps.shape'] = logps.shape
         # msg['logps'] = logps
-        msg['dist_inputs.shape'] = dist_inputs.shape
+        _out_msg['dist_inputs.shape'] = dist_inputs.shape
         # msg['dist_inputs'] = dist_inputs
-        msg['last_computed_neighbour_actions.shape'] = self.last_computed_neighbour_actions.shape
-        msg['last_computed_neighbour_actions'] = self.last_computed_neighbour_actions
-        # printPanel(msg, title='model sample actions done!')
+        _out_msg['last_computed_neighbour_actions.shape'] = self.last_computed_neighbour_actions.shape
+        _out_msg['last_computed_neighbour_actions'] = self.last_computed_neighbour_actions
+        # printPanel(_out_msg, title='model sample actions done!')
+        # print('=*= ' * 20)
 
-        return actions, logps, dist_inputs, state_batches
+        return res_actions, logps, dist_inputs, state_batches
 
 
     def postprocess_trajectory(self, sample_batch, other_agent_batches=None, episode=None):

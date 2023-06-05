@@ -5,7 +5,7 @@ import numpy as np
 
 from marlpo.algo_ippo import IPPOTrainer, IPPOConfig
 from marlpo.callbacks import MultiAgentDrivingCallbacks
-from marlpo.env.env_wrappers import get_ccenv, get_rllib_compatible_new_gymnasium_api_env
+from marlpo.env.env_wrappers import get_ccenv, get_rllib_compatible_gymnasium_api_env
 from copo.torch_copo.utils.train import train
 from copo.torch_copo.utils.utils import get_train_parser
 
@@ -241,8 +241,6 @@ def concat_ccppo_process(policy, sample_batch, other_agent_batches, odim, adim, 
         # "neighbours" may not be in sample_batch['infos'][index]:
         # neighbours = sample_batch['infos'][index]["neighbours"]
         neighbours = sample_batch['infos'][index].get("neighbours", [])
-        print(sample_batch.keys())
-        print('neighbours:', neighbours)
 
         # Note that neighbours returned by the environment are already sorted based on their
         # distance to the ego vehicle whose info is being used here.
@@ -334,7 +332,7 @@ def mean_field_ccppo_process(policy, sample_batch, other_agent_batches, odim, ad
 
 
 def get_ccppo_env(env_class):
-    return get_rllib_compatible_new_gymnasium_api_env(get_ccenv(env_class))
+    return get_rllib_compatible_gymnasium_api_env(get_ccenv(env_class))
 
 
 class CCPPOPolicy(PPOTorchPolicy):

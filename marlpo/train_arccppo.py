@@ -10,10 +10,10 @@ from metadrive import (
 
 # from copo.torch_copo.algo_ippo import IPPOTrainer
 # from copo.torch_copo.utils.callbacks import MultiAgentDrivingCallbacks
-from marlpo.algo_arccppo import ARCCPPOConfig, ARCCPPOTrainer, get_ccppo_env
+from marlpo.algo_arccppo import ARCCPPOConfig, ARCCPPOTrainer
 
 from marlpo.train.train import train
-from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
+from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env, get_ccppo_env
 # from copo.torch_copo.utils.utils import get_train_parser
 from marlpo.callbacks import MultiAgentDrivingCallbacks
 from marlpo.utils.utils import get_other_training_resources, get_num_workers
@@ -26,15 +26,15 @@ TEST = False # <~~ Toggle TEST mod here!
 TEST = True
 
 # === Training Scene ===
-SCENE = "roundabout"
-# SCENE = "intersection"
+# SCENE = "roundabout"
+SCENE = "intersection"
 
 if TEST: SCENE = "roundabout" 
 
 # === Env Seeds ===
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
 seeds = [5000]
-EXP_SUFFIX = "_V1"
+EXP_SUFFIX = "_ro_ascending_&_random"
 
 if __name__ == "__main__":
     # === Environment ===
@@ -61,12 +61,12 @@ if __name__ == "__main__":
 
     # ===== Environmental Setting =====
 
-    num_agents = 8 #, 8, 16, 32, 40]
+    num_agents = 30 #, 8, 16, 32, 40]
     env_config = dict(
         num_agents=num_agents,
         return_single_space=True,
         start_seed=tune.grid_search(seeds),
-        neighbours_distance=10,
+        neighbours_distance=40,
     )
  
     if TEST:
@@ -80,12 +80,10 @@ if __name__ == "__main__":
             exp_name = f"ARCCPPO_{SCENE.capitalize()}_seed={seeds[0]}_{num_agents}agents"+EXP_SUFFIX
         else:
             exp_name = f"ARCCPPO_{SCENE.capitalize()}_{len(seeds)}seeds_{num_agents}agents"+EXP_SUFFIX
-
         num_rollout_workers = get_num_workers()
     
 
     # === Algo Setting ===
-
     ppo_config = (
         ARCCPPOConfig()
         .framework('torch')
@@ -118,11 +116,14 @@ if __name__ == "__main__":
         #     evaluation_num_workers=1,)
         .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
         .update_from_dict(dict(
-            counterfactual=tune.grid_search([True, False]),
-            # fuse_mode="concat",
+            # counterfactual=tune.grid_search([False, True]),
+            counterfactual=tune.grid_search([True]),
+            # fuse_mode=tune.grid_search(["mf", "concat", "none"]),
             # fuse_mode=tune.grid_search(["mf"]),
-            fuse_mode=tune.grid_search(["mf", "concat", "none"]),
-            random_order=True,
+            fuse_mode=tune.grid_search(["concat"]),
+            random_order=tune.grid_search([True]),
+            # random_order=tune.grid_search([True, False]),
+            # random_order=True,
         ))
     )
 

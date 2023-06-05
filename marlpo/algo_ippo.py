@@ -235,11 +235,11 @@ def _my_test():
     from metadrive.envs.marl_envs import MultiAgentRoundaboutEnv
     from marlpo.callbacks import MultiAgentDrivingCallbacks
     from marlpo.train.train import train
-    from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
+    from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env
 
     stop = {"training_iteration": 1}
     exp_name = "TEST"
-    env = get_rllib_compatible_new_gymnasium_api_env(MultiAgentRoundaboutEnv)
+    env = get_rllib_compatible_gymnasium_api_env(MultiAgentRoundaboutEnv)
     env_config = dict(
         use_render=False,
         # num_agents=40,

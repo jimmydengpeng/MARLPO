@@ -13,7 +13,7 @@ from metadrive import (
 from marlpo.algo_ccppo import CCPPOConfig, CCPPOTrainer, get_ccppo_env
 
 from marlpo.train.train import train
-from marlpo.env.env_wrappers import get_rllib_compatible_new_gymnasium_api_env
+from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env
 # from copo.torch_copo.utils.utils import get_train_parser
 from marlpo.callbacks import MultiAgentDrivingCallbacks
 from marlpo.utils.utils import get_other_training_resources, get_num_workers
@@ -23,11 +23,11 @@ from marlpo.utils.utils import get_other_training_resources, get_num_workers
 
 
 TEST = False # <~~ Toggle TEST mod here! 
-TEST = True
+# TEST = True
 
 # === Training Scene ===
-SCENE = "roundabout"
-# SCENE = "intersection"
+# SCENE = "roundabout"
+SCENE = "intersection"
 
 if TEST: SCENE = "roundabout" 
 
@@ -61,7 +61,7 @@ if __name__ == "__main__":
 
     # ===== Environmental Setting =====
 
-    num_agents = 4 #, 8, 16, 32, 40]
+    num_agents = 40 #, 8, 16, 32, 40]
     env_config = dict(
         num_agents=num_agents,
         return_single_space=True,
@@ -119,9 +119,9 @@ if __name__ == "__main__":
         .update_from_dict(dict(
             counterfactual=True,
             # fuse_mode="concat",
-            fuse_mode=tune.grid_search(["concat"]),
-            # fuse_mode=tune.grid_search(["mf", "concat"]),
-            mf_nei_distance=100,
+            # fuse_mode=tune.grid_search(["concat"]),
+            fuse_mode=tune.grid_search(["mf", "concat"]),
+            mf_nei_distance=10,
         ))
     )
 

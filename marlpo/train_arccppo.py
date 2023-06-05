@@ -121,7 +121,10 @@ if __name__ == "__main__":
             # fuse_mode=tune.grid_search(["mf", "concat", "none"]),
             # fuse_mode=tune.grid_search(["mf"]),
             fuse_mode=tune.grid_search(["concat"]),
+            # random_order=tune.grid_search([True, False]),
             random_order=tune.grid_search([True]),
+            edge_descending=tune.grid_search([None])
+            # edge_descending=tune.grid_search([True, False, None])
             # random_order=tune.grid_search([True, False]),
             # random_order=True,
         ))

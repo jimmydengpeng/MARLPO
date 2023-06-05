@@ -66,7 +66,8 @@ class ARCCPPOConfig(IPPOConfig):
         self.fuse_mode = "mf"  # In ["concat", "mf", "none"]
         self.mf_nei_distance = 10
         self.old_value_loss = True
-        self.random_order = True # ['none', 'random', 'edge-ascend', 'edge-descend' ]
+        self.random_order = True # [True, False]
+        self.edge_descending = True # [True, False, None]
         self.update_from_dict({"model": {"custom_model": "arcc_model"}})
 
     def validate(self):
@@ -397,10 +398,6 @@ def mean_field_ccppo_process(policy, sample_batch, other_agent_batches, odim, ad
     return sample_batch
 
 
-def get_ccppo_env(env_class, return_class=False):
-    return get_rllib_compatible_gymnasium_api_env(get_ccenv(env_class), return_class=return_class)
-
-
 class ARCCPPOPolicy(PPOTorchPolicy):
     count = 0
     def __init__(self, observation_space, action_space, config):
@@ -524,24 +521,24 @@ class ARCCPPOPolicy(PPOTorchPolicy):
         
         _out_msg = {}
         _out_msg['unsorted_obs_info_list.len'] = len(obs_info_list)
-        _out_msg['unsorted'] = [ (t[1].get('agent_id', 'agent0'), len(t[1].get('neighbours', []))) for t in obs_info_list]
-        # 生成random_order X
-        # 按照邻居数量的多少从多到少排序
-        # 生成random_order X
-        
-        # 按照邻居数量的多少从多到少排序
-        if self.config.get('random_order', False):
-            random.shuffle(obs_info_list)
-            # msg['unsorted_obs_info_list'] = unsorted_obs_info_list
-            _msg = {}
-            _msg['unsorted'] = [ (t[1].get('agent_id', 'agent0'), len(t[1].get('neighbours', []))) for t in obs_info_list]
-            obs_info_list.sort(key=lambda x: len(x[1].get('neighbours', [])), reverse=False)
-            _msg['sorted'] = [(t[1].get('agent_id', 'agent0'), len(t[1].get('neighbours', []))) for t in obs_info_list]
-            # printPanel(_msg, title=f'{self.__class__.__name__} generate random_order done!')
-        else:
+
+        # === 生成random_order X ===
+        _order_msg = {}
+        _order_msg['unsorted'] = [ (t[1].get('agent_id', 'agent0'), len(t[1].get('neighbours', []))) for t in obs_info_list]
+
+        # 是否打乱
+        if self.config['random_order']:
             random.shuffle(obs_info_list)
 
+        # 按照邻居数量的多少排序
+        if self.config['edge_descending'] != None:
+            obs_info_list.sort(key=lambda x: len(x[1].get('neighbours', [])), reverse=self.config['edge_descending'])
 
+        _order_msg['sorted'] = [(t[1].get('agent_id', 'agent0'), len(t[1].get('neighbours', []))) for t in obs_info_list]
+        printPanel(_order_msg, title=f'{self.__class__.__name__} generate random_order done!')
+
+
+        # === sample actions ===
         all_agent_actions_dict = defaultdict(lambda: torch.zeros((self.model.action_space.shape[0]))) # {agent_id: tensor.shape(2)} # for res_actions
         all_agents_nei_actions_dict = {} # for self.extra_action_out()
         all_agent_logps_dict = {} # for return

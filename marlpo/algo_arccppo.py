@@ -535,7 +535,7 @@ class ARCCPPOPolicy(PPOTorchPolicy):
             obs_info_list.sort(key=lambda x: len(x[1].get('neighbours', [])), reverse=self.config['edge_descending'])
 
         _order_msg['sorted'] = [(t[1].get('agent_id', 'agent0'), len(t[1].get('neighbours', []))) for t in obs_info_list]
-        printPanel(_order_msg, title=f'{self.__class__.__name__} generate random_order done!')
+        # printPanel(_order_msg, title=f'{self.__class__.__name__} generate random_order done!')
 
 
         # === sample actions ===

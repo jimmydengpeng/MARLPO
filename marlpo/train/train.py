@@ -6,22 +6,23 @@ import numpy as np
 
 import ray
 from ray import air, tune
+from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
 from ray.tune import CLIReporter
 
 ray.init()
 
 def train(
     trainer,
-    config,
+    config: AlgorithmConfig,
     stop,
     exp_name,
-    num_seeds=1,
+    num_seeds=1, # for the random seed of each worker, in conjunction with worker_index,
     num_gpus=0,
     test_mode=False,
     suffix="",
     checkpoint_freq=10,
     keep_checkpoints_num=None,
-    start_seed=0,
+    start_seed=0, # for grid search worker seeds
     local_mode=False,
     save_pkl=True,
     custom_callback=None,
@@ -46,6 +47,14 @@ def train(
         checkpoint_config = air.CheckpointConfig(checkpoint_at_end=True)
 
     verbose = 1 if test_mode else 1
+
+    # == Set seed & log_level ==
+    if num_seeds:
+        seed = tune.grid_search([i * 100 + start_seed for i in range(num_seeds)])
+        config.debugging(
+            seed=seed, 
+            log_level="DEBUG" if test_mode else "INFO"
+        )
 
     tuner = tune.Tuner(
         trainer,

@@ -1,8 +1,6 @@
 from metadrive.envs.marl_envs import MultiAgentRoundaboutEnv, MultiAgentIntersectionEnv
 from ray import tune
 
-from ray.rllib.algorithms.ppo import PPOConfig
-
 from metadrive import (
     MultiAgentRoundaboutEnv, MultiAgentIntersectionEnv, MultiAgentTollgateEnv,
     MultiAgentBottleneckEnv, MultiAgentParkingLotEnv
@@ -12,7 +10,7 @@ from metadrive import (
 # from copo.torch_copo.utils.callbacks import MultiAgentDrivingCallbacks
 from marlpo.algo_ippo import IPPOConfig, IPPOTrainer
 from marlpo.train.train import train
-from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env
+from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env, get_ccppo_env
 # from copo.torch_copo.utils.utils import get_train_parser
 from marlpo.callbacks import MultiAgentDrivingCallbacks
 from marlpo.utils.utils import get_other_training_resources, get_num_workers
@@ -21,10 +19,10 @@ TEST = False
 # TEST = True
 SCENE = "intersection"
 # SCENE = "roundabout"
-
-# seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-seeds = [5000]
-num_agents = 40
+if TEST: SCENE = "roundabout" 
+seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+# seeds = [5000]
+num_agents = 30
 
 EXP_SUFFIX = ""
 
@@ -49,19 +47,14 @@ if __name__ == "__main__":
     #     get_rllib_compatible_new_gymnasium_api_env(MultiAgentParkingLotEnv),
     # ])
 
-    if TEST: SCENE = "roundabout" 
 
-    env = get_rllib_compatible_gymnasium_api_env(scenes[SCENE])
+    env = get_ccppo_env(scenes[SCENE])
 
     # === Environmental Setting ===
     env_config = dict(
         use_render=False,
         num_agents=num_agents,
         return_single_space=True,
-        # "manual_control": True,
-        # crash_done=True,
-        # "agent_policy": ManualControllableIDMPolicy
-        # start_seed=tune.grid_search([5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000])
         start_seed=tune.grid_search(seeds)
     )
 
@@ -69,7 +62,7 @@ if __name__ == "__main__":
         env_config["start_seed"] = 5000
         stop = {"training_iteration": 1}
         exp_name = "TEST"
-        num_rollout_workers = 1
+        num_rollout_workers = 0
     else:
         stop = {
             "timesteps_total": 1e6,
@@ -78,7 +71,6 @@ if __name__ == "__main__":
             exp_name = f"IPPO_{SCENE.capitalize()}_seed={seeds[0]}_{num_agents}agents"+EXP_SUFFIX
         else:
             exp_name = f"IPPO_{SCENE.capitalize()}_{len(seeds)}seeds_{num_agents}agents"+EXP_SUFFIX
-
         num_rollout_workers = get_num_workers()
     
 

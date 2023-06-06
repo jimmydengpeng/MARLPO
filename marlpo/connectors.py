@@ -10,6 +10,7 @@ from marlpo.utils.utils import print, inspect, printPanel, pretty_print, dict_to
 NEIGHBOUR_INFOS = "neighbour_infos"
 
 
+"""
 class MyAgentConnector(AgentConnector):
     def __init__(self, ctx: ConnectorContext):
         super().__init__(ctx)
@@ -26,6 +27,7 @@ class MyAgentConnector(AgentConnector):
         msg = {}
         msg['ac_data.data'] = ac_data.data
         printPanel(msg, 'MyAgentConnector')
+        exit()
         # raw_dict = ac_data.data.raw_dict
         # if 'agent_index' not in raw_dict:
         #     msg = {}
@@ -73,6 +75,7 @@ class MyAgentConnector(AgentConnector):
     def from_state(ctx: ConnectorContext, params: Any):
         return MyAgentConnector(ctx)
 
+"""
 
 
 class ModEnvInfoAgentConnector(AgentConnector):
@@ -139,10 +142,11 @@ class ModEnvInfoAgentConnector(AgentConnector):
         return ac_data
 
     def to_state(self) -> Tuple[str, Any]:
-        return MyAgentConnector.__name__, None
+        return ModEnvInfoAgentConnector.__name__, None
     
     @staticmethod
     def from_state(ctx: ConnectorContext, params: Any):
-        return MyAgentConnector(ctx)
+        return ModEnvInfoAgentConnector(ctx)
 
-register_connector(MyAgentConnector.__name__, MyAgentConnector)
+
+register_connector(ModEnvInfoAgentConnector.__name__, ModEnvInfoAgentConnector)

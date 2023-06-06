@@ -16,11 +16,6 @@ if TYPE_CHECKING:
     from ray.rllib.evaluation import RolloutWorker
 
 
-from colorlog import logger
-
-
-
-
 class MultiAgentDrivingCallbacks(DefaultCallbacks):
 
     def on_sample_end(self, *, worker: RolloutWorker, samples: SampleBatch, **kwargs) -> None:
@@ -66,22 +61,14 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
         '''
 
         active_keys = list(base_env.envs[env_index].vehicles.keys())
-        # if active_keys != episode.get_agents():
-        #     logger.debug('active_keys', active_keys)
-        #     print('episode.get_agents:', episode.get_agents())
-        #     print(episode._last_infos)
-        #     exit()
 
         # The agent_rewards dict contains all agents' reward, not only the active agent!
         # active_keys = [k for k, _ in episode.agent_rewards.keys()]
 
         for agent_id in active_keys:
             k = agent_id
-            # info = episode.last_info_for(k)
+            # info = episode.last_info_for(k) # deprecated!
             info = episode._last_infos.get(k)
-            # except:
-            #     logger.debug('last_infos', episode._last_infos)
-            #     exit()
             if info:
                 if "step_reward" not in info:
                     continue
@@ -104,49 +91,40 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
         env_index: Optional[int] = None,
         **kwargs,
     ) -> None:
-
-        # logger.debug('_last_infos len-1', len(episode._last_infos)-1)
-        # logger.debug('env step', episode.total_env_steps)
-        # logger.debug('agent step', episode.total_agent_steps)
-        # logger.debug('rew', episode.total_reward)
-        # agents = episode.get_agents()
-        # # for a in agents:
-        # #     logger.info(a, episode.agent_index(a))
-        # # exit()
-        # logger.info('agents len', len(agents))
-        # logger.info('agents', agents)
-        # if len(episode._last_infos)-1 != len(agents):
-        #     logger.error('not equal', len(agents))
-        #     exit()
         keys = [k for k, _ in episode.agent_rewards.keys()]
-        # logger.debug('keys', keys)
-        # exit()
         arrive_dest_list = []
         crash_list = []
         out_of_road_list = []
         max_step_list = []
+
+        # # Newly introduced metrics
+        # track_length_list = []
+        # route_completion_list = []
+        # current_distance_list = []
+
         for k in keys:
             # info = episode.last_info_for(k)
             info = episode._last_infos[k]
             arrive_dest = info.get("arrive_dest", False)
+
+            # # Newly introduced metrics
+            # route_completion = info.get("route_completion", -1)
+            # track_length = info.get("track_length", -1)
+            # current_distance = info.get("current_distance", -1)
+            # track_length_list.append(track_length)
+            # current_distance_list.append(current_distance)
+            # route_completion_list.append(route_completion)
+
+
             crash = info.get("crash", False)
             out_of_road = info.get("out_of_road", False)
             max_step = not (arrive_dest or crash or out_of_road)
-            # if max_step != info.get("max_step"):
-            #     logger.error('arrive', arrive_dest)
-            #     logger.error('crash', crash)
-            #     logger.error('out', out_of_road)
-            #     logger.error('max_step', max_step)
-            #     logger.error('info.arrive_dest', info.get("arrive_dest"))
-            #     logger.error('info.crash', info.get("crash"))
-            #     logger.error('info.out', info.get("out_of_road"))
-            #     logger.error('info.max_step', info.get("max_step"))
-
-            # assert max_step == info.get("max_step")
+            assert max_step == info.get("max_step")
             arrive_dest_list.append(arrive_dest)
             crash_list.append(crash)
             out_of_road_list.append(out_of_road)
             max_step_list.append(max_step)
+
         episode.custom_metrics["success_rate"] = np.mean(arrive_dest_list)
         episode.custom_metrics["crash_rate"] = np.mean(crash_list)
         episode.custom_metrics["out_of_road_rate"] = np.mean(out_of_road_list)

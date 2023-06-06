@@ -1,7 +1,6 @@
 from metadrive.envs.marl_envs import MultiAgentRoundaboutEnv, MultiAgentIntersectionEnv
 from ray import tune
 
-from ray.rllib.algorithms.ppo import PPOConfig
 
 from metadrive import (
     MultiAgentRoundaboutEnv, MultiAgentIntersectionEnv, MultiAgentTollgateEnv,

@@ -43,7 +43,7 @@ from ray.rllib.utils.typing import ModelConfigDict, TensorType, TrainerConfigDic
 
 from marlpo.algo_ippo import IPPOTrainer, IPPOConfig
 from marlpo.callbacks import MultiAgentDrivingCallbacks
-from marlpo.connectors import MyAgentConnector, ModEnvInfoAgentConnector
+from marlpo.connectors import ModEnvInfoAgentConnector
 from marlpo.env.env_wrappers import get_ccenv, get_rllib_compatible_gymnasium_api_env
 from marlpo.utils.utils import print, printPanel
 

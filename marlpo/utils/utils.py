@@ -98,8 +98,8 @@ def get_other_training_resources():
 
 def get_num_workers():
     if sys.platform.startswith('darwin'):
-        return 6
+        return 4
     elif sys.platform.startswith('linux'):
-        return 8
+        return 7
     else:
-        return 1
+        return 0

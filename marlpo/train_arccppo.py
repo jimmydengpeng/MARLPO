@@ -22,7 +22,7 @@ from marlpo.utils.utils import get_other_training_resources, get_num_workers
 
 
 TEST = False # <~~ Toggle TEST mod here! 
-# TEST = True
+TEST = True
 
 # === Training Scene ===
 # SCENE = "roundabout"
@@ -33,11 +33,7 @@ if TEST: SCENE = "roundabout"
 # === Env Seeds ===
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
 seeds = [5000]
-<<<<<<< HEAD
-EXP_SUFFIX = "_ro"
-=======
 EXP_SUFFIX = "_atn"
->>>>>>> 8fe005e (attention_actor)
 
 if __name__ == "__main__":
     # === Environment ===
@@ -122,17 +118,6 @@ if __name__ == "__main__":
         #     evaluation_num_workers=1,)
         .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
         .update_from_dict(dict(
-<<<<<<< HEAD
-            counterfactual=tune.grid_search([False, True]),
-            # counterfactual=tune.grid_search([True]),
-            fuse_mode=tune.grid_search(["mf", "concat", "none"]),
-            # fuse_mode=tune.grid_search(["mf"]),
-            # fuse_mode=tune.grid_search(["concat"]),
-            random_order=tune.grid_search([True, False]),
-            # random_order=tune.grid_search([True]),
-            # edge_descending=tune.grid_search([None])
-            edge_descending=tune.grid_search([True, False, None])
-=======
             # counterfactual=tune.grid_search([False, True]),
             counterfactual=tune.grid_search([False]),
             # fuse_mode=tune.grid_search(["mf", "concat", "none"]),
@@ -142,7 +127,6 @@ if __name__ == "__main__":
             random_order=tune.grid_search([True]),
             edge_descending=tune.grid_search([None])
             # edge_descending=tune.grid_search([True, False, None])
->>>>>>> 8fe005e (attention_actor)
             # random_order=tune.grid_search([True, False]),
             # random_order=True,
         ))

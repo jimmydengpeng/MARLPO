@@ -80,17 +80,20 @@ class ARAgentwiseObsEncoder(nn.Module):
     # def forward(self, obs, onehot_action, execution_mask=None):
     def forward(
         self,
-        input_dict: Dict[str, TensorType],
+        # input_dict: Dict[str, TensorType],
+        obs: TensorType,
         nei_actions: TensorType,
         execution_mask=None, # TODO
     ) -> Tuple[TensorType, List[TensorType]]:
-
+        ''' args:
+                obs: shape(BatchSize, obs_dim)
+                nei_actions: Size(BS, num_nei, act_dim), e.g. (1,4,2)
+                execution_mask: Size(BS, num_nei), e.g. (1, 4)
+        '''
         _msg = {}
-        obs = input_dict["obs_flat"].float() # shape(BatchSize, 91)
+
         assert obs.shape[-1] == self.obs_dim 
         
-        nei_actions = input_dict[NEIGHBOUR_ACTIONS] # Size(BS, num_nei, act_dim), e.g. (1,4,2)NEIGHBOUR_ACTIONS
-
         # 1. slicing the obs
         obs_dict = {} # add keys: obs_ego, obs_navi, obs_lidar
         _pre_idx = 0
@@ -148,9 +151,16 @@ class ARAgentwiseObsEncoder(nn.Module):
             input_seq = torch.cat([x, act_embedding], -2) # (BS, seq_len, embedding_dim)
             _msg['input_seq'] = input_seq
 
-            # 3.3 put seq into attention net
-            x = self.dense(self.attn(input_seq, mask=execution_mask))
+            # 3.3 reshape execution_mask
+            execution_mask = torch.cat([
+                torch.zeros(x.shape[:-1]), # (BS, obs_seq_len)
+                execution_mask
+            ], -1) # (BS, obs_seq_len + num_nei_actions) 
+            _msg['execution_mask'] = execution_mask
+            # print(execution_mask)
 
+            # 3.4 put seq into attention net
+            x = self.dense(self.attn(input_seq, mask=execution_mask))
 
             '''
             act_embedding = self.act_embedding(nei_actions)

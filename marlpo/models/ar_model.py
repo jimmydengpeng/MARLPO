@@ -250,7 +250,7 @@ class ARModel(TorchModelV2, nn.Module):
         args:
             input_dict.keys():
             [rollout]
-                ('obs', 'neighbour_actions', 'obs_flat')
+                ('obs', 'obs_flat', 'neighbour_actions', 'execution_mask')
             [training]
                 ('obs', 'actions', 'rewards', 'terminateds', 'truncateds', 'infos', 'eps_id', 'unroll_id', 'agent_index', 't', 'neighbour_actions', 'action_dist_inputs', 'action_logp', 'centralized_critic_obs', 'vf_preds', 'advantages', 'value_targets', 'obs_flat')
 
@@ -262,21 +262,21 @@ class ARModel(TorchModelV2, nn.Module):
         '''
         msg = {}
         msg['input_dict'] = input_dict
+        msg['use_attention'] = self.use_attention
         # printPanel(msg, f'{self.__class__.__name__}.forward()')
 
         assert NEIGHBOUR_ACTIONS in input_dict
+        obs = input_dict["obs_flat"].float() # shape(BatchSize, 91)
         nei_actions = input_dict[NEIGHBOUR_ACTIONS] # shape(BatchSize, num_nei, act_dim)
         execution_mask = input_dict[EXECUTION_MASK]
 
-
         # attention actor
         if self.use_attention:
-            # nei_actions = nei_actions.view(-1, self.num_neighbours, self.action_space.shape[0]) # (BS, num_nei, act_dim)
-            logits = self.actor(input_dict, nei_actions, execution_mask)
+            nei_actions = nei_actions.view(-1, self.num_neighbours, self.action_space.shape[0]) # (BS, num_nei, act_dim)
+            logits = self.actor(obs, nei_actions, execution_mask)
 
         # mlp actor
         else: 
-            obs = input_dict["obs_flat"].float() # shape(BatchSize, 91)
             # obs = obs.reshape(obs.shape[0], -1)
             obs = obs.view(obs.shape[0], -1) # size(BatchSize, *)
 

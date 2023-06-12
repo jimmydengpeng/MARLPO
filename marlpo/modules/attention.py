@@ -66,7 +66,7 @@ def ScaledDotProductAttention(q, k, v, mask=None, dropout=None):
     scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)  # (NUM_HEADS, NUM_TOKENS_1, NUM_TOKENS_2)
 
     if mask is not None:
-        mask = mask.unsqueeze(-2).unsqueeze(-2)
+        mask = mask.unsqueeze(-2).unsqueeze(-2) # (*, NUM_TOKENS_2)
         scores = scores - (1 - mask) * 1e10
 
     # in case of overflow

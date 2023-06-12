@@ -5,7 +5,7 @@ from ray.rllib.connectors.registry import get_connector, register_connector
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils.typing import AgentConnectorDataType
 
-from marlpo.utils.utils import print, inspect, printPanel, pretty_print, dict_to_str
+from marlpo.utils.debug import print, inspect, printPanel, pretty_print, dict_to_str
 
 NEIGHBOUR_INFOS = "neighbour_infos"
 

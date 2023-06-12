@@ -119,7 +119,7 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
             crash = info.get("crash", False)
             out_of_road = info.get("out_of_road", False)
             max_step = not (arrive_dest or crash or out_of_road)
-            assert max_step == info.get("max_step")
+            # assert max_step == info.get("max_step") # not approved all the time!
             arrive_dest_list.append(arrive_dest)
             crash_list.append(crash)
             out_of_road_list.append(out_of_road)

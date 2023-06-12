@@ -14,9 +14,9 @@ from metadrive import (
 from marlpo.algo_ippo import IPPOConfig, IPPOTrainer
 from marlpo.algo_arippo import ARIPPOConfig, ARIPPOTrainer
 from marlpo.algo_ccppo import CCPPOConfig, CCPPOTrainer
-from marlpo.algo_arccppo import ARCCPPOConfig, ARCCPPOTrainer, get_ccppo_env
+from marlpo.algo_arccppo import ARCCPPOConfig, ARCCPPOTrainer
 from marlpo.callbacks import MultiAgentDrivingCallbacks
-from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env
+from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env, get_ccppo_env
 from marlpo.utils.utils import print, inspect, get_other_training_resources, get_num_workers
 
 
@@ -25,16 +25,16 @@ from marlpo.utils.utils import print, inspect, get_other_training_resources, get
 
 # SCENE = "roundabout"
 SCENE = "intersection"
-# ALGO = 'IPPO'
+ALGO = 'IPPO'
 # ALGO = 'ARPPO'
 # ALGO = 'CCPPO'
-ALGO = 'ARCCPPO'
+# ALGO = 'ARCCPPO'
 FUSE_MODE = 'concat' 
 RANDOM_ORDER = True
 # FUSE_MODE = 'mf'
 
 SEED = 5000
-NUM_AGENTS = 40
+NUM_AGENTS = 30
 
 EVAL_ENV_NUM_AGENTS = NUM_AGENTS
 EVAL_ENV_NUM_AGENTS = 30
@@ -43,6 +43,7 @@ ALL_CKP = dict(
     # IPPO_4a_5000="exp_results/IPPO_CC_Roundabout_seed=5000_4agents/IPPOTrainer_MultiAgentRoundaboutEnv_b9bb5_00000_0_start_seed=5000_2023-05-18_20-22-58/checkpoint_000977",
     IPPO_4a_5000="/Users/jimmy/ray_results/IPPO_Central_Value_Roundabout_8seeds/IPPOTrainer_MultiAgentRoundaboutEnv_ac78b_00000_0_start_seed=5000_2023-04-20_18-04-01/checkpoint_000977",
     IPPO_40a_5000_intersection='exp_results/IPPO_Intersection_seed=5000_40agents/IPPOTrainer_MultiAgentIntersectionEnv_437fb_00000_0_start_seed=5000_2023-06-01_17-39-54/checkpoint_000977',
+    IPPO_30a_5000_intersection='exp_results/IPPO_Intersection_8seeds_30agents/IPPOTrainer_MultiAgentIntersectionEnv_c9a21_00000_0_start_seed=5000_seed=0_2023-06-06_20-08-03/checkpoint_000977',
     ARPPO_4a_5000="/Users/jimmy/ray_results/ARIPPO_V0_Roundabout_1seeds_NumAgentsSearch_4agents/ARIPPOTrainer_MultiAgentRoundaboutEnv_b0e1f_00000_0_start_seed=5000_2023-05-18_14-10-30/checkpoint_000977",
     ARPPO_40a_5000="/Users/jimmy/ray_results/ARIPPO_V0_Roundabout_8seeds/ARIPPOTrainer_MultiAgentRoundaboutEnv_cc1dc_00000_0_start_seed=5000_2023-05-17_23-02-09/checkpoint_000977",
     ARPPO_32a_5000="/Users/jimmy/ray_results/ARIPPO_V0_Roundabout_seed=5000_NumAgentsSearch_32agents/ARIPPOTrainer_MultiAgentRoundaboutEnv_11848_00000_0_start_seed=5000_2023-05-18_15-53-25/checkpoint_000977",
@@ -234,10 +235,10 @@ if __name__ == "__main__":
         "parkinglot": MultiAgentParkingLotEnv,
     }
 
-    if 'ARCCPPO' in ALGO:
-        env, env_cls = get_ccppo_env(scenes[SCENE], return_class=True)
-    else:
-        env, env_cls = get_rllib_compatible_gymnasium_api_env(scenes[SCENE], return_class=True)
+    # if 'ARCCPPO' in ALGO:
+    env, env_cls = get_ccppo_env(scenes[SCENE], return_class=True)
+    # else:
+    #     env, env_cls = get_rllib_compatible_gymnasium_api_env(scenes[SCENE], return_class=True)
 
    # === Environmental Setting ===
     env_config = dict(
@@ -256,12 +257,13 @@ if __name__ == "__main__":
 
     algo_config = (
         AlgoConfig()
+        .debugging(seed=0)
         .framework('torch')
         .resources(
             **get_other_training_resources()
         )
         .rollouts(
-            num_rollout_workers=1,
+            num_rollout_workers=0,
         )
         .callbacks(MultiAgentDrivingCallbacks)
         .training(
@@ -301,7 +303,7 @@ if __name__ == "__main__":
     NUM_EPISODES_TOTAL = 10
     cur_epi = 0
 
-    RENDER = False
+    # RENDER = False
     RENDER = True
 
     episodic_mean_rews = []

@@ -49,12 +49,17 @@ def train(
     verbose = 1 if test_mode else 1
 
     # == Set seed & log_level ==
-    if num_seeds:
+    if num_seeds == 0:
+        seed = None
+    elif num_seeds == 1:
+        seed = 0 * 100 + start_seed
+    else:
         seed = tune.grid_search([i * 100 + start_seed for i in range(num_seeds)])
-        config.debugging(
-            seed=seed, 
-            log_level="DEBUG" if test_mode else "INFO"
-        )
+
+    config.debugging(
+        seed=seed, 
+        log_level="DEBUG" if test_mode else "INFO"
+    )
 
     tuner = tune.Tuner(
         trainer,

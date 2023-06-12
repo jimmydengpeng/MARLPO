@@ -109,6 +109,9 @@ class MultiHeadSelfAttention(nn.Module):
         self.entry_dim = entry if entry != 'all' else None
 
     def forward(self, x, mask):
+        '''args:
+            x: Size(BatchSize x seq_len x embedding_dim)
+        '''
         x = self.pre_norm(x)
         # perform linear operation, split into several heads, and put NUM_TOKENS as the last second dim
         if self.entry_dim is None:
@@ -126,6 +129,7 @@ class MultiHeadSelfAttention(nn.Module):
 
         if self.entry_dim is None:
             # concatenate heads and put through final linear layer
+            # contiguous(): 确保张量的内存布局连续
             return scores.transpose(-2, -3).contiguous().view(*x.shape[:-1], self.d_attn)
         else:
             return scores.transpose(-2, -3).contiguous().view(*x.shape[:-2], self.d_attn)

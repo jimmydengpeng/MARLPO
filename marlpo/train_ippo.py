@@ -17,12 +17,12 @@ from marlpo.utils.utils import get_other_training_resources, get_num_workers
 
 TEST = False
 # TEST = True
-SCENE = "intersection"
-# SCENE = "roundabout"
+# SCENE = "intersection"
+SCENE = "roundabout"
 if TEST: SCENE = "roundabout" 
 seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
 # seeds = [5000]
-num_agents = 30
+num_agents = 40
 
 EXP_SUFFIX = ""
 

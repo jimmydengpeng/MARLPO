@@ -42,8 +42,11 @@ from ray.rllib.utils.typing import ModelConfigDict, TensorType, TrainerConfigDic
 
 from marlpo.algo_ippo import IPPOTrainer, IPPOConfig
 from marlpo.connectors import ModEnvInfoAgentConnector
-from marlpo.utils.utils import print, printPanel
+from marlpo.models.ar_model import ARModel
+from marlpo.utils.debug import print, printPanel
 
+
+ModelCatalog.register_custom_model("ar_model", ARModel)
 
 from rich import print, inspect
 
@@ -53,7 +56,7 @@ CENTRALIZED_CRITIC_OBS = "centralized_critic_obs"
 COUNTERFACTUAL = "counterfactual"
 NEIGHBOUR_INFOS = "neighbour_infos"
 NEIGHBOUR_ACTIONS = "neighbour_actions"
-
+EXECUTION_MASK = 'execution_mask'
 
 class ARCCPPOConfig(IPPOConfig):
     def __init__(self, algo_class=None):
@@ -65,7 +68,7 @@ class ARCCPPOConfig(IPPOConfig):
         self.old_value_loss = True
         self.random_order = True # [True, False]
         self.edge_descending = True # [True, False, None]
-        self.update_from_dict({"model": {"custom_model": "arcc_model"}})
+        # self.update_from_dict({"model": {"custom_model": "arcc_model"}})
 
     def validate(self):
         super().validate()
@@ -94,202 +97,6 @@ def get_centralized_critic_obs_dim(
         centralized_critic_obs_dim += (num_neighbours - 1) * action_space_shape.shape[0]
     return centralized_critic_obs_dim
 
-
-class ARCCModel(TorchModelV2, nn.Module):
-    """Multi-agent model that implements a centralized VF."""
-    def __init__(
-        self, obs_space: gym.spaces.Space, action_space: gym.spaces.Space, num_outputs: int,
-        model_config: ModelConfigDict, name: str, **model_kwargs
-    ):
-
-        TorchModelV2.__init__(self, obs_space, action_space, num_outputs, model_config, name, **model_kwargs)
-        nn.Module.__init__(self)
-
-        hiddens = list(model_config.get("fcnet_hiddens", [])) + list(model_config.get("post_fcnet_hiddens", []))
-        activation = model_config.get("fcnet_activation")
-        if not model_config.get("fcnet_hiddens", []):
-            activation = model_config.get("post_fcnet_activation")
-        no_final_linear = model_config.get("no_final_linear")
-        self.vf_share_layers = model_config.get("vf_share_layers")
-        self.free_log_std = model_config.get("free_log_std")
-        # Generate free-floating bias variables for the second half of
-        # the outputs.
-        if self.free_log_std:
-            assert num_outputs % 2 == 0, (
-                "num_outputs must be divisible by two",
-                num_outputs,
-            )
-            num_outputs = num_outputs // 2
-
-        layers = []
-        self._logits = None
-
-        # === CC Modification: We compute the centralized critic obs size here! ===
-        centralized_critic_obs_dim = self.get_centralized_critic_obs_dim()
-
-        # TODO === Fix WARNING catalog.py:617 -- Custom ModelV2 should accept all custom options as **kwargs, instead of expecting them in config['custom_model_config']! === 
-
-        custom_model_config = model_config.get('custom_model_config', {})
-
-        self.fuse_mode = custom_model_config.get("fuse_mode", None)
-        self.counterfactual = custom_model_config.get("counterfactual", False)
-        self.num_neighbours = custom_model_config.get("num_neighbours", 0)
-        # === CCModel get custom_model_config Ends ===
-
-        # 加入动作size
-        prev_layer_size = int(np.product(obs_space.shape)) + self.num_neighbours*self.action_space.shape[0]
-        msg = dict(
-            prev_layer_size=prev_layer_size,
-            num_neighbours=self.num_neighbours,
-        )
-
-        # Create layers 0 to second-last.
-        for size in hiddens[:-1]:
-            layers.append(
-                SlimFC(
-                    in_size=prev_layer_size,
-                    out_size=size,
-                    initializer=normc_initializer(1.0),
-                    activation_fn=activation
-                )
-            )
-            prev_layer_size = size
-
-        # The last layer is adjusted to be of size num_outputs, but it's a
-        # layer with activation.
-        if no_final_linear and num_outputs:
-            layers.append(
-                SlimFC(
-                    in_size=prev_layer_size,
-                    out_size=num_outputs,
-                    initializer=normc_initializer(1.0),
-                    activation_fn=activation
-                )
-            )
-            prev_layer_size = num_outputs
-        # Finish the layers with the provided sizes (`hiddens`), plus -
-        # iff num_outputs > 0 - a last linear layer of size num_outputs.
-        else:
-            if len(hiddens) > 0:
-                layers.append(
-                    SlimFC(
-                        in_size=prev_layer_size,
-                        out_size=hiddens[-1],
-                        initializer=normc_initializer(1.0),
-                        activation_fn=activation
-                    )
-                )
-                prev_layer_size = hiddens[-1]
-            if num_outputs:
-                self._logits = SlimFC(
-                    in_size=prev_layer_size,
-                    out_size=num_outputs,
-                    initializer=normc_initializer(0.01),
-                    activation_fn=None
-                )
-            else:
-                self.num_outputs = ([int(np.product(obs_space.shape))] + hiddens[-1:])[-1]
-
-        # Layer to add the log std vars to the state-dependent means.
-        if self.free_log_std and self._logits:
-            self._append_free_log_std = AppendBiasLayer(num_outputs)
-
-        self._hidden_layers = nn.Sequential(*layers)
-
-        self._value_branch_separate = None
-        if not self.vf_share_layers:
-            # Build a parallel set of hidden layers for the value net.
-
-            # === Our Modification ===
-            # NOTE: We use centralized critic obs size as the input size of critic!
-            # prev_vf_layer_size = int(np.product(obs_space.shape))
-            prev_vf_layer_size = centralized_critic_obs_dim
-            assert prev_vf_layer_size > 0
-
-            vf_layers = []
-            for size in hiddens:
-                vf_layers.append(
-                    SlimFC(
-                        in_size=prev_vf_layer_size,
-                        out_size=size,
-                        activation_fn=activation,
-                        initializer=normc_initializer(1.0)
-                    )
-                )
-                prev_vf_layer_size = size
-            self._value_branch_separate = nn.Sequential(*vf_layers)
-
-        self._value_branch = SlimFC(
-            in_size=prev_vf_layer_size, 
-            out_size=1, 
-            initializer=normc_initializer(0.01), 
-            activation_fn=None
-        )
-
-        self.view_requirements[CENTRALIZED_CRITIC_OBS] = ViewRequirement(
-            space=Box(obs_space.low[0], obs_space.high[0], shape=(centralized_critic_obs_dim, ))
-        )
-        self.view_requirements[SampleBatch.ACTIONS] = ViewRequirement(
-            space=action_space
-        )
-        # self.view_requirements[NEIGHBOUR_INFOS] = ViewRequirement(
-        #     # data_col=SampleBatch.ACTIONS, 
-        #     space=Box(action_space.low[0], action_space.high[0], shape=(self.num_neighbours*action_space.shape[0], )),
-        #     # used_for_compute_actions=False
-        # )
-        # self.view_requirements[SampleBatch.INFOS].used_for_compute_actions = True
-        # self.view_requirements[NEIGHBOUR_INFOS] = ViewRequirement()
-        self.view_requirements[NEIGHBOUR_ACTIONS] = ViewRequirement(
-            space=Box(action_space.low[0], action_space.high[0], shape=(self.num_neighbours*action_space.shape[0], )), 
-            used_for_compute_actions=False
-        )
-        
-
-    def get_centralized_critic_obs_dim(self):
-        return get_centralized_critic_obs_dim(
-            self.obs_space, self.action_space, self.model_config["custom_model_config"]["counterfactual"],
-            self.model_config["custom_model_config"]["num_neighbours"],
-            self.model_config["custom_model_config"]["fuse_mode"]
-        )
-
-    @override(TorchModelV2)
-    def forward(self, input_dict, state, seq_lens):
-        # print('*** ***' * 10)
-        # print('[ARCCModel] input_dict.keys():')
-        # print(input_dict.keys())
-
-        assert NEIGHBOUR_ACTIONS in input_dict
-        nei_actions = input_dict[NEIGHBOUR_ACTIONS] # shape(BatchSize, 8)
-
-
-        obs = input_dict["obs_flat"].float() # shape(BatchSize, 91)
-        obs = obs.reshape(obs.shape[0], -1)
-
-        
-        # printPanel(str(nei_actions), 'nei_actions')
-        obs_cat = torch.cat((obs, nei_actions), -1) # shape (1, 91 + action_dim*num_neighbours) == (1, 99)
-
-        # printPanel({'obs_cat': obs_cat.shape}, title="ARCModel.forward()")
-
-        features = self._hidden_layers(obs_cat)
-        logits = self._logits(features) if self._logits else self._features
-        if self.free_log_std:
-            logits = self._append_free_log_std(logits)
-        return logits, state
-
-    @override(TorchModelV2)
-    def value_function(self) -> TensorType:
-        raise ValueError(
-            "Centralized Value Function should not be called directly! "
-            "Call central_value_function(cobs) instead!"
-        )
-
-    def central_value_function(self, obs):
-        assert self._value_branch is not None
-        return torch.reshape(self._value_branch(self._value_branch_separate(obs)), [-1])
-
-
-ModelCatalog.register_custom_model("arcc_model", ARCCModel)
 
 
 def concat_ccppo_process(policy, sample_batch, other_agent_batches, odim, adim, other_info_dim):
@@ -414,10 +221,13 @@ class ARCCPPOPolicy(PPOTorchPolicy):
         # self.view_requirements[NEIGHBOUR_INFOS] = ViewRequirement()
 
         self.last_computed_neighbour_actions = None # shape[BatchSize, NeighbourActionsDim], e.g. (1, 8) or (32, 8)
+        self.last_computed_execution_mask = None
 
     def extra_action_out(self, input_dict, state_batches, model, action_dist):
-        return {NEIGHBOUR_ACTIONS: self.last_computed_neighbour_actions}
-        # return {}
+        return {
+            NEIGHBOUR_ACTIONS: self.last_computed_neighbour_actions,
+            EXECUTION_MASK: self.last_computed_execution_mask
+        }
 
 
     @override(PPOTorchPolicy)
@@ -425,7 +235,7 @@ class ARCCPPOPolicy(PPOTorchPolicy):
         self, 
         model: ModelV2, 
         *, 
-        obs_batch: TensorType, 
+        obs_batch: SampleBatch, 
         state_batches: TensorType, 
         **kwargs
     ) -> Tuple[TensorType, TensorType, TensorType, List[TensorType]]:
@@ -433,13 +243,18 @@ class ARCCPPOPolicy(PPOTorchPolicy):
 
         Args:
             model: Underlying model.
-            obs_batch: Observation tensor batch.
+            obs_batch: Observation tensor batch (type: SampleBatch(dict))
+                NOTE: when doing _initialize_loss_from_dummy_batch(), the dummy_batch is used with TorchPolicyV2._lazy_tensor_dict(), meaning that values in this SampleBatch will be type of numpy.ndarray util __getitem__, then the type will be torch.Tensor:
                 {
-                    SampleBatch.OBS: torch.Size([32, 91])
-                    SampleBatch.INFOS: numpy.ndarray (num_agents, ) of dict
-                    NEIGHBOUR_INFOS: torch.Size([32])
-                    NEIGHBOUR_ACTIONS: torch.Size([32, 8])
+                    SampleBatch.OBS: torch.Size([BatchSize, obs_dim])
+                    SampleBatch.INFOS: torch.Size([BatchSize]) of 0(init) or dict(rollout)
+                    NEIGHBOUR_INFOS: torch.Size([BatchSize])
+                    NEIGHBOUR_ACTIONS: torch.Size([BatchSize, 8])
                 } 
+                NOTE: BatchSize:
+                            [32]                    when initializing
+                            [num_agents_per_step]   when rollout
+                            [training_batch_size]   when training
 
             state_batches: Action sampling state batch.
             **kwargs: {'explore': bool, 'timestep': int}
@@ -463,6 +278,8 @@ class ARCCPPOPolicy(PPOTorchPolicy):
         # == print input msg ==
         _in_msg={}
         _in_msg['input_dict'] = input_dict
+        _in_msg['input_dict.type'] = type(input_dict)
+        _in_msg['input_dict.is_training'] = input_dict.is_training
         _in_msg[SampleBatch.INFOS+'.type'] = type(infos)
         if isinstance(infos, np.ndarray) or isinstance(infos, torch.Tensor):
             _in_msg[SampleBatch.INFOS+'.shape'] = infos.shape
@@ -471,18 +288,24 @@ class ARCCPPOPolicy(PPOTorchPolicy):
                 for idx, info in enumerate(infos):
                    _in_msg['all_agents'].append(info.get('agent_id', f'dummy_agent{idx}'))
             # msg[SampleBatch.INFOS+'[0]'] = infos[0]
-        assert isinstance(infos, np.ndarray) or isinstance(infos, torch.Tensor)
+
         # msg['NEIGHBOUR_INFOS.type'] = type(input_dict[NEIGHBOUR_INFOS])
         # msg['NEIGHBOUR_INFOS.shape'] = input_dict[NEIGHBOUR_INFOS].shape
         # msg['NEIGHBOUR_INFOS[0]'] = input_dict[NEIGHBOUR_INFOS][0]
         # msg['NEIGHBOUR_ACTIONS.type'] = type(input_dict[NEIGHBOUR_ACTIONS])
         # msg['NEIGHBOUR_ACTIONS.shape'] = input_dict[NEIGHBOUR_ACTIONS].shape
         # msg['NEIGHBOUR_ACTIONS[0]'] = input_dict[NEIGHBOUR_ACTIONS][0]
+
         _in_msg.update(kwargs)
         _in_msg['random_order'] = self.config.get('random_order', False)
-        # msg['random_order'] = self.config.random_order
         # printPanel(_in_msg, title=f'{self.__class__.__name__}.action_sampler_fn()')
+        # print('==='*20)
+        # for k in input_dict:
+        #     print(k, type(input_dict[k]), input_dict[k].shape)
+        #     print('---'*20)
+        # print('==='*20)
 
+        assert isinstance(infos, np.ndarray) or isinstance(infos, torch.Tensor)
 
         # === Call the exploration before_compute_actions hook. ===
         explore = kwargs.get('explore', None)
@@ -536,8 +359,13 @@ class ARCCPPOPolicy(PPOTorchPolicy):
 
 
         # === sample actions ===
-        all_agent_actions_dict = defaultdict(lambda: torch.zeros((self.model.action_space.shape[0]))) # {agent_id: tensor.shape(2)} # for res_actions
+        # all_agent_actions_dict = defaultdict(lambda: torch.zeros((self.model.action_space.shape[0]))) # {agent_id: tensor.shape(2)} # for res_actions
+
+        all_agent_actions_dict = {} # {agent_id: action}
+
+
         all_agents_nei_actions_dict = {} # for self.extra_action_out()
+        all_agents_nei_actions_mask = {} # for self.extra_action_out()
         all_agent_logps_dict = {} # for return
         all_agent_dist_inputs_dict = {} # for return
         # all_agent_logps = {}
@@ -550,15 +378,24 @@ class ARCCPPOPolicy(PPOTorchPolicy):
             _msg['agent_id'] = agent_id
             _msg['o.shape'] = obs.shape
             _msg['info'] = info
-
+            # printPanel(_msg, f'{self.__class__.__name__}before compting single actions')
             cnt += 1
 
-            nei_actions = torch.zeros((num_neighbours, self.model.action_space.shape[0])) # shape(num_nei, 2)
+            nei_actions = torch.zeros((1, num_neighbours, self.model.action_space.shape[0])) # shape(num_nei, 2)
+            execution_mask = torch.ones((1, num_neighbours,)) # TODO
 
             for i, nei_id in zip(range(num_neighbours), info.get('neighbours', [])):
-                nei_actions[i] = all_agent_actions_dict[nei_id]
-            nei_actions_flat = torch.reshape(nei_actions, (1,-1)) # shape(1, num_nei x 2)
-            all_agents_nei_actions_dict[agent_id] = (nei_actions_flat)
+                # 1. nei_action already generated
+                if nei_id in all_agent_actions_dict:
+                    nei_actions[0, i] = all_agent_actions_dict[nei_id]
+                    execution_mask[0, i] = 0
+                else:
+                    nei_actions[0, i] = torch.zeros((1, self.model.action_space.shape[0]))
+
+            # nei_actions_flat = torch.reshape(nei_actions, (1,-1)) # shape(1, num_nei x 2)
+            all_agents_nei_actions_dict[agent_id] = nei_actions
+            all_agents_nei_actions_mask[agent_id] = execution_mask
+
             _msg['nei_actions.shape'] = nei_actions.shape
             _msg['nei_actions'] = nei_actions
             # o_cat = torch.cat((o, nei_actions_flat), -1) # shape (1, 91 + action_dim*num_neighbours)
@@ -567,7 +404,8 @@ class ARCCPPOPolicy(PPOTorchPolicy):
 
             model_input_dict = {
                 SampleBatch.OBS: obs,
-                NEIGHBOUR_ACTIONS: nei_actions_flat,
+                NEIGHBOUR_ACTIONS: nei_actions,
+                EXECUTION_MASK: execution_mask,
             }
             dist_input, state_out = self.model(model_input_dict, state_batches)
             # dist_inputs.append(dist_input)
@@ -594,12 +432,14 @@ class ARCCPPOPolicy(PPOTorchPolicy):
 
         res_actions = []
         all_agents_nei_actions_list = []
+        all_agents_nei_actions_mask_list = []
         logps = []
         dist_inputs = []
         for info in nei_info_list:
             agent_id = info.get('agent_id', 'agent0')
             res_actions.append(all_agent_actions_dict[agent_id])
             all_agents_nei_actions_list.append(all_agents_nei_actions_dict[agent_id])
+            all_agents_nei_actions_mask_list.append(all_agents_nei_actions_mask[agent_id])
             logps.append(all_agent_logps_dict[agent_id])
             dist_inputs.append(all_agent_dist_inputs_dict[agent_id])
 
@@ -607,6 +447,7 @@ class ARCCPPOPolicy(PPOTorchPolicy):
         logps = torch.cat(logps, 0)
         dist_inputs = torch.cat(dist_inputs, 0)
         self.last_computed_neighbour_actions = torch.cat(all_agents_nei_actions_list, 0)
+        self.last_computed_execution_mask = torch.cat(all_agents_nei_actions_mask_list, 0)
 
         # msg = {}
         _out_msg['actions.shape'] = res_actions.shape
@@ -695,6 +536,9 @@ class ARCCPPOPolicy(PPOTorchPolicy):
         PZH: We replace the value function here so that we query the centralized values instead
         of the native value function.
         """
+        _msg = {}
+        _msg['train_batch.is_training'] = train_batch.is_training
+        # printPanel(_msg, f'{self.__class__.__name__}.loss()')
 
         logits, state = model(train_batch)
         curr_action_dist = dist_class(logits, model)

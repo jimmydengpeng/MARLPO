@@ -27,7 +27,7 @@ if TEST:
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
 seeds = [5000]
 
-EXP_SUFFIX = ""
+EXP_SUFFIX = "_repeat"
 
 
 if __name__ == "__main__":

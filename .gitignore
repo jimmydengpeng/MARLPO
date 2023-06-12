@@ -1434,7 +1434,6 @@ metadrive*/
 log/
 ptz*/
 test*.*
-_*.*
 experiments/
 exp_results/
 tensorboard.sh

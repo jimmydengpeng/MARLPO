@@ -22,7 +22,7 @@ from marlpo.utils.utils import get_other_training_resources, get_num_workers
 
 
 TEST = False # <~~ Toggle TEST mod here! 
-TEST = True
+# TEST = True
 
 # === Training Scene ===
 # SCENE = "roundabout"

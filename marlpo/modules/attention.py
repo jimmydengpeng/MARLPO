@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from marlpo.utils.debug import print, printPanel
+
 
 class CatSelfEmbedding(nn.Module):
 
@@ -65,14 +67,20 @@ def ScaledDotProductAttention(q, k, v, mask=None, dropout=None):
     assert k.shape[-1] == v.shape[-1] == d_k
     scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)  # (NUM_HEADS, NUM_TOKENS_1, NUM_TOKENS_2)
 
+    _msg = {}
+
     if mask is not None:
-        mask = mask.unsqueeze(-2).unsqueeze(-2) # (*, NUM_TOKENS_2)
+        mask = mask.unsqueeze(-2).unsqueeze(-2) # (*, NUM_TOKENS_2) -> (*, 1, 1, NUM_TOKENS_2)
+        _msg['mask'] = mask
+        # print('scores_0', scores)
         scores = scores - (1 - mask) * 1e10
+        # print('scores_1', scores, scores.shape)
 
     # in case of overflow
     scores = scores - scores.max(dim=-1, keepdim=True)[0]
+    # print('scores_2', scores, scores.shape)
     scores = F.softmax(scores, dim=-1)
-
+    # print('scores_3', scores, scores.shape)
     if mask is not None:
         # in case of all-zero
         scores = scores * mask
@@ -80,13 +88,25 @@ def ScaledDotProductAttention(q, k, v, mask=None, dropout=None):
     if dropout is not None:
         scores = dropout(scores)
 
+    # print('scores_4', scores, scores.shape)
+    # print('v', v, v.shape)
+    _msg['scores'] = scores
+    _msg['v'] = v
+
     output = torch.matmul(scores, v)
+
+    _msg['output'] = output
+
+    # printPanel(_msg, 'ScaledDotProductAttention()')
     return output
 
 
 class MultiHeadSelfAttention(nn.Module):
 
     def __init__(self, input_dim, d_attn, n_heads, dropout=0.0, entry='all'):
+        ''' args:
+                entry: the first entry_dim will be output
+        '''
         super().__init__()
         assert entry == 'all' or isinstance(entry, int)
 
@@ -107,31 +127,48 @@ class MultiHeadSelfAttention(nn.Module):
         self.attn_dropout = None if dropout == 0.0 else nn.Dropout(dropout)
 
         self.entry_dim = entry if entry != 'all' else None
+        # printPanel({'entry_dim': self.entry_dim}, f'{self.__class__.__name__}')
 
     def forward(self, x, mask):
         '''args:
             x: Size(BatchSize x seq_len x embedding_dim)
         '''
+        _msg = {}
+        _msg['x'] = x
+        _msg['mask'] = mask
+
         x = self.pre_norm(x)
         # perform linear operation, split into several heads, and put NUM_TOKENS as the last second dim
         if self.entry_dim is None:
             q = self.q_linear(x).view(*x.shape[:-1], self.n_heads, self.d_head).transpose(-2, -3)
         else:
             qx = x[..., self.entry_dim: self.entry_dim + 1, :]
+            # qx = x[..., 0:self.entry_dim, :]
             q = self.q_linear(qx).view(*qx.shape[:-1], self.n_heads, self.d_head).transpose(-2, -3)
         k = self.k_linear(x).view(*x.shape[:-1], self.n_heads, self.d_head).transpose(-2, -3)
         v = self.v_linear(x).view(*x.shape[:-1], self.n_heads, self.d_head).transpose(-2, -3)
 
-        if self.entry_dim is not None and mask is not None:
-            mask = mask[..., self.entry_dim: self.entry_dim + 1]
+        _msg['q'] = q
+        _msg['k'] = k
+        _msg['v'] = v
+        # print(mask)
+        # if self.entry_dim is not None and mask is not None:
+        #     mask = mask[..., self.entry_dim: self.entry_dim + 1]
+        # printPanel({'mask2': mask}, f'{self.__class__.__name__}')
+        # print(mask)
         # calculate attention
-        scores = ScaledDotProductAttention(q, k, v, mask, self.attn_dropout)
+        scores = ScaledDotProductAttention(q, k, v, mask, self.attn_dropout) # (BS, num_heads, num_tokens, head_dim)
+
+        _msg['scores'] = scores
+
+        # printPanel(_msg, f'{self.__class__.__name__}')
 
         if self.entry_dim is None:
             # concatenate heads and put through final linear layer
             # contiguous(): 确保张量的内存布局连续
             return scores.transpose(-2, -3).contiguous().view(*x.shape[:-1], self.d_attn)
         else:
+            # return scores.transpose(-2, -3).view(-1, self.d_attn)[x.shape[:-2]].contiguous()
             return scores.transpose(-2, -3).contiguous().view(*x.shape[:-2], self.d_attn)
 
 

@@ -70,7 +70,7 @@ def pretty_print(result):
     cleaned = json.dumps(out, cls=SafeFallbackEncoder)
     return yaml.safe_dump(json.loads(cleaned), default_flow_style=False)
 
-def dict_to_str(a_dict: dict, indent=2, use_json=False):
+def dict_to_str(a_dict: dict, indent=2, use_json=False, raw_output=False):
     # 1. hand-written conversion
     if not use_json:
         need_prefix = False
@@ -90,7 +90,10 @@ def dict_to_str(a_dict: dict, indent=2, use_json=False):
                     v.append(' '*indent + l)
                 v = '\n' + '\n'.join(v)
             if is_tensor_type(v):
-                v = refine_tensor_type(v)
+                if not raw_output:
+                    v = refine_tensor_type(v)
+                else:
+                    v = '\n' + str(v)
                 
             res_str += prefix + k + ': ' f'{v}'
 
@@ -106,13 +109,13 @@ def log(title: str = None, obj=None, docs=False):
     inspect(obj=obj, title=title, docs=docs)
 
 
-def printPanel(msg, title=None, **kwargs):
+def printPanel(msg, title=None, raw_output=False, **kwargs):
     if isinstance(msg, str):
         pass
     elif isinstance(msg, int):
         msg = str(msg)
     elif isinstance(msg, dict):
-        msg = dict_to_str(msg)
+        msg = dict_to_str(msg, raw_output=raw_output)
     else:
         print(f'[Warning] utils.py:printPanel -- msg with type {type(msg)}')
 
@@ -143,5 +146,7 @@ if __name__ == '__main__':
         c=3.14,
         d=d1
     )
-    print(dict_to_str(d2))
+    # print(dict_to_str(d2))
     # print(dict_to_str(d2, use_json=True))
+
+    printPanel(d2, title='d2', raw_output=True)

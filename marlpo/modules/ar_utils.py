@@ -59,6 +59,7 @@ class ARAgentwiseObsEncoder(nn.Module):
         self.act_embedding = get_layer(act_dim, hidden_dim)
 
         # == 2. MultiHeadSelfAttention ==
+        # self.attn = MultiHeadSelfAttention(hidden_dim, hidden_dim, 4, entry=self.compute_obs_seq_len()) # TODO
         self.attn = MultiHeadSelfAttention(hidden_dim, hidden_dim, 4, entry=0) # TODO
         # self.attn = MultiHeadSelfAttention(hidden_dim, hidden_dim, 4, entry='all')
 
@@ -76,6 +77,13 @@ class ARAgentwiseObsEncoder(nn.Module):
         # policy head should have a smaller scale
         nn.init.orthogonal_(self.policy_head.weight.data, gain=0.01)
 
+
+    def compute_obs_seq_len(self):
+        res = 0
+        for k, shape in self.obs_shapes.items():
+            res += len(shape)
+        return res
+            
 
     # def forward(self, obs, onehot_action, execution_mask=None):
     def forward(
@@ -153,13 +161,14 @@ class ARAgentwiseObsEncoder(nn.Module):
 
             # 3.3 reshape execution_mask
             execution_mask = torch.cat([
-                torch.zeros(x.shape[:-1]), # (BS, obs_seq_len)
+                torch.ones(x.shape[:-1]), # (BS, obs_seq_len)
                 execution_mask
             ], -1) # (BS, obs_seq_len + num_nei_actions) 
             _msg['execution_mask'] = execution_mask
             # print(execution_mask)
 
             # 3.4 put seq into attention net
+            # printPanel({'execution_mask': execution_mask}, f'{self.__class__.__name__}')
             x = self.dense(self.attn(input_seq, mask=execution_mask))
 
             '''

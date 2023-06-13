@@ -32,7 +32,7 @@ if TEST: SCENE = "roundabout"
 
 # === Env Seeds ===
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-seeds = [5000]
+seeds = [6000]
 EXP_SUFFIX = "_atn"
 
 if __name__ == "__main__":
@@ -105,7 +105,7 @@ if __name__ == "__main__":
                 "custom_model_config": {
                     "num_neighbours": 4,
                     "use_attention": tune.grid_search([True, False]),
-                    # "use_attention": False,
+                    # "use_attention": True,
                 }
             },
         )
@@ -119,13 +119,13 @@ if __name__ == "__main__":
         .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
         .update_from_dict(dict(
             # counterfactual=tune.grid_search([False, True]),
-            counterfactual=tune.grid_search([False]),
+            counterfactual=False,
             # fuse_mode=tune.grid_search(["mf", "concat", "none"]),
             # fuse_mode=tune.grid_search(["mf"]),
-            fuse_mode=tune.grid_search(["none"]),
-            # random_order=tune.grid_search([True, False]),
-            random_order=tune.grid_search([True]),
-            edge_descending=tune.grid_search([None])
+            fuse_mode="none",
+            random_order=tune.grid_search([True, False]),
+            # random_order=tune.grid_search([True]),
+            edge_descending=None
             # edge_descending=tune.grid_search([True, False, None])
             # random_order=tune.grid_search([True, False]),
             # random_order=True,

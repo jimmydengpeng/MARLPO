@@ -382,13 +382,13 @@ class ARCCPPOPolicy(PPOTorchPolicy):
             cnt += 1
 
             nei_actions = torch.zeros((1, num_neighbours, self.model.action_space.shape[0])) # shape(num_nei, 2)
-            execution_mask = torch.ones((1, num_neighbours,)) # TODO
+            execution_mask = torch.zeros((1, num_neighbours,)) # TODO
 
             for i, nei_id in zip(range(num_neighbours), info.get('neighbours', [])):
                 # 1. nei_action already generated
                 if nei_id in all_agent_actions_dict:
                     nei_actions[0, i] = all_agent_actions_dict[nei_id]
-                    execution_mask[0, i] = 0
+                    execution_mask[0, i] = torch.tensor(1)
                 else:
                     nei_actions[0, i] = torch.zeros((1, self.model.action_space.shape[0]))
 

@@ -42,7 +42,7 @@ from ray.rllib.utils.typing import ModelConfigDict, TensorType, TrainerConfigDic
 
 from marlpo.algo_ippo import IPPOTrainer, IPPOConfig
 from marlpo.connectors import ModEnvInfoAgentConnector
-from marlpo.utils.utils import print, printPanel
+from marlpo.utils.debug import print, printPanel
 
 
 from rich import print, inspect
@@ -623,11 +623,14 @@ class ARCCPPOPolicy(PPOTorchPolicy):
         return res_actions, logps, dist_inputs, state_batches
 
 
-    def postprocess_trajectory(self, sample_batch, other_agent_batches=None, episode=None):
-        msg = {}
-        msg['sample_batch'] = sample_batch
-        msg['other_agent_batches'] = other_agent_batches
-        msg['episode'] = episode
+    @override(PPOTorchPolicy)
+    def postprocess_trajectory(
+        self, sample_batch: SampleBatch, other_agent_batches=None, episode=None
+    ):
+        # msg = {}
+        # msg['sample_batch'] = sample_batch
+        # msg['other_agent_batches'] = other_agent_batches
+        # msg['episode'] = episode
         # printPanel(msg, f'{self.__class__.__name__}.postprocess_trajectory()')
         # print('sample_batch', sample_batch)
         # print('other_agent_batches', other_agent_batches)

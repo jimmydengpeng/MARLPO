@@ -9,7 +9,7 @@ from metadrive import (
 
 # from copo.torch_copo.algo_ippo import IPPOTrainer
 # from copo.torch_copo.utils.callbacks import MultiAgentDrivingCallbacks
-from marlpo.algo_aratnppo import ARCCPPOConfig, ARCCPPOTrainer
+from marlpo.algo_arppo import ARCCPPOConfig, ARCCPPOTrainer
 
 from marlpo.train.train import train
 from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env, get_ccppo_env
@@ -22,7 +22,7 @@ from marlpo.utils.utils import get_other_training_resources, get_num_workers
 
 
 TEST = False # <~~ Toggle TEST mod here! 
-# TEST = True
+TEST = True
 
 # === Training Scene ===
 # SCENE = "roundabout"
@@ -31,9 +31,9 @@ SCENE = "intersection"
 if TEST: SCENE = "roundabout" 
 
 # === Env Seeds ===
-# seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-seeds = [6000]
-EXP_SUFFIX = "_atn"
+seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+# seeds = [6000]
+EXP_SUFFIX = ""
 
 if __name__ == "__main__":
     # === Environment ===
@@ -70,6 +70,7 @@ if __name__ == "__main__":
  
     if TEST:
         env_config["start_seed"] = 5000
+        env_config["num_agents"] = 4
         stop = {"training_iteration": 1}
         exp_name = "TEST"
         num_rollout_workers = 0
@@ -104,8 +105,8 @@ if __name__ == "__main__":
                 "custom_model": "ar_model",
                 "custom_model_config": {
                     "num_neighbours": 4,
-                    "use_attention": tune.grid_search([True, False]),
-                    # "use_attention": True,
+                    # "use_attention": tune.grid_search([False]),
+                    "use_attention": False,
                 }
             },
         )
@@ -123,7 +124,8 @@ if __name__ == "__main__":
             # fuse_mode=tune.grid_search(["mf", "concat", "none"]),
             # fuse_mode=tune.grid_search(["mf"]),
             fuse_mode="none",
-            random_order=tune.grid_search([True, False]),
+            # random_order=tune.grid_search([True, False]),
+            random_order=False,
             # random_order=tune.grid_search([True]),
             edge_descending=None
             # edge_descending=tune.grid_search([True, False, None])

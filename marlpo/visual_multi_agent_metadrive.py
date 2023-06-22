@@ -17,7 +17,8 @@ from marlpo.algo_ccppo import CCPPOConfig, CCPPOTrainer
 from marlpo.algo_arccppo import ARCCPPOConfig, ARCCPPOTrainer
 from marlpo.callbacks import MultiAgentDrivingCallbacks
 from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env, get_ccppo_env
-from marlpo.utils.utils import print, inspect, get_other_training_resources, get_num_workers
+from marlpo.utils.debug import print, inspect
+from marlpo.utils.utils import get_other_training_resources, get_num_workers
 
 
 

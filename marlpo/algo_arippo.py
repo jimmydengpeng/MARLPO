@@ -39,7 +39,7 @@ from ray.rllib.utils.annotations import (
 
 from marlpo.model_arippo import ARFullyConnectedModel
 
-from utils.utils import log, inspect, print
+from utils.debug import log, inspect, print
 
 torch, nn = try_import_torch()
 

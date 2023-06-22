@@ -298,7 +298,7 @@ class ARCCPPOPolicy(PPOTorchPolicy):
 
         _in_msg.update(kwargs)
         _in_msg['random_order'] = self.config.get('random_order', False)
-        # printPanel(_in_msg, title=f'{self.__class__.__name__}.action_sampler_fn()')
+        printPanel(_in_msg, title=f'{self.__class__.__name__}.action_sampler_fn()')
         # print('==='*20)
         # for k in input_dict:
         #     print(k, type(input_dict[k]), input_dict[k].shape)
@@ -464,7 +464,7 @@ class ARCCPPOPolicy(PPOTorchPolicy):
         return res_actions, logps, dist_inputs, state_batches
 
 
-    def postprocess_trajectory(self, sample_batch, other_agent_batches=None, episode=None):
+    def postprocess_trajectory(self, sample_batch: SampleBatch, other_agent_batches=None, episode=None):
         msg = {}
         msg['sample_batch'] = sample_batch
         msg['other_agent_batches'] = other_agent_batches
@@ -538,7 +538,7 @@ class ARCCPPOPolicy(PPOTorchPolicy):
         """
         _msg = {}
         _msg['train_batch.is_training'] = train_batch.is_training
-        # printPanel(_msg, f'{self.__class__.__name__}.loss()')
+        printPanel(_msg, f'{self.__class__.__name__}.loss()')
 
         logits, state = model(train_batch)
         curr_action_dist = dist_class(logits, model)

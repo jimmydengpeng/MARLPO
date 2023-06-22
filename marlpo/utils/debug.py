@@ -149,4 +149,4 @@ if __name__ == '__main__':
     # print(dict_to_str(d2))
     # print(dict_to_str(d2, use_json=True))
 
-    printPanel(d2, title='d2', raw_output=True)
+    printPanel(d2, title='title', raw_output=True)

@@ -72,7 +72,7 @@ class ValueWrapper:
                 s = self._refine_tensor_type(data)
             else:
                 s = '\n' + str(data)
-        elif data == '-' or data == '--' or data == '---':
+        elif data == '-' or data == '--' or data == '---' or data == '----': # TODO: any number of -
             self.type = self.SEPARATOR
             s = data
         else:

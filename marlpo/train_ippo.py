@@ -10,24 +10,36 @@ from metadrive import (
 # from copo.torch_copo.utils.callbacks import MultiAgentDrivingCallbacks
 from marlpo.algo_ippo import IPPOConfig, IPPOTrainer
 from marlpo.train.train import train
-from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env, get_ccppo_env
+from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env, get_ccppo_env, get_rllib_cc_env
 # from copo.torch_copo.utils.utils import get_train_parser
 from marlpo.callbacks import MultiAgentDrivingCallbacks
-from marlpo.utils.utils import get_other_training_resources, get_num_workers
+from marlpo.utils.utils import (
+    get_other_training_resources, 
+    get_num_workers, 
+    get_train_parser, 
+    get_abbr_scene,
+    get_agent_str
+)
 
 TEST = False
 # TEST = True
-# SCENE = "intersection"
-SCENE = "roundabout"
+SCENE = "intersection"
+# SCENE = "roundabout"
 if TEST: SCENE = "roundabout" 
-seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-# seeds = [5000]
-num_agents = 40
+# seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+# seeds = [5000, 6000, 7000]
+seeds = [7000]
 
-EXP_SUFFIX = ""
+num_agents = [4, 8, 16, 30]
+# num_agents = [16]
+
+EXP_DES = "no_lidar"
+# EXP_DES = "16a_nei_state"
 
 
 if __name__ == "__main__":
+    args = get_train_parser().parse_args()
+    TEST = TEST or args.test
     # === Environment ===
     scenes = {
         "roundabout": MultiAgentRoundaboutEnv,
@@ -48,14 +60,23 @@ if __name__ == "__main__":
     # ])
 
 
-    env = get_ccppo_env(scenes[SCENE])
+    # env = get_rllib_compatible_gymnasium_api_env(scenes[SCENE])
+    env = get_rllib_cc_env(scenes[SCENE])
 
     # === Environmental Setting ===
     env_config = dict(
         use_render=False,
-        num_agents=num_agents,
+        num_agents=tune.grid_search(num_agents),
         return_single_space=True,
-        start_seed=tune.grid_search(seeds)
+        start_seed=tune.grid_search(seeds),
+        vehicle_config=dict(
+            lidar=dict(num_lasers=tune.grid_search([0]), distance=40, num_others=0),
+        ),
+        # == neighbour config ==
+        neighbour_states=True,
+        # num_neighbours=tune.grid_search([1, 2, 3]),
+        num_neighbours=4,
+        # neighbours_distance=tune.grid_search([10, 20, 30]),
     )
 
     if TEST:
@@ -67,10 +88,12 @@ if __name__ == "__main__":
         stop = {
             "timesteps_total": 1e6,
         }
-        if len(seeds) == 1:
-            exp_name = f"IPPO_{SCENE.capitalize()}_seed={seeds[0]}_{num_agents}agents"+EXP_SUFFIX
-        else:
-            exp_name = f"IPPO_{SCENE.capitalize()}_{len(seeds)}seeds_{num_agents}agents"+EXP_SUFFIX
+        # if len(seeds) == 1:
+        #     exp_name = f"IPPO_{SCENE.capitalize()}_seed={seeds[0]}_{num_agents}agents"+EXP_SUFFIX
+        # else:
+        #     exp_name = f"IPPO_{SCENE.capitalize()}_{len(seeds)}seeds_{num_agents}agents"+EXP_SUFFIX
+        EXP_SUFFIX = ('_' if EXP_DES else '') + EXP_DES
+        exp_name = f"IPPO_{get_abbr_scene(SCENE)}_{get_agent_str(num_agents)}agents" + EXP_SUFFIX
         num_rollout_workers = get_num_workers()
     
 

@@ -25,15 +25,16 @@ config = dict(
         random_lane_num=False,
         map=7,  # seven block
         horizon=1000,
-        start_seed=np.random.randint(0, 1000),
+        # start_seed=np.random.randint(0, 1000),
+        start_seed=np.random.randint(5000),
         # ===== Reward Scheme =====
-        success_reward=10.0,
-        out_of_road_penalty=10.0, #5.0,
-        crash_vehicle_penalty=10.0, #5.0,
-        crash_object_penalty=10.0, #5.0,
-        driving_reward=1.0, #1.0,
-        speed_reward=0.1,
-        use_lateral_reward=False,
+        # success_reward=10.0,
+        # out_of_road_penalty=10.0, #5.0,
+        # crash_vehicle_penalty=10.0, #5.0,
+        # crash_object_penalty=10.0, #5.0,
+        # driving_reward=1.0, #1.0,
+        # speed_reward=0.1,
+        # use_lateral_reward=False,
     )
 
 def env_creator(env_config):

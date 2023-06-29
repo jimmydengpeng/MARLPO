@@ -27,13 +27,13 @@ SCENE = "intersection"
 # SCENE = "roundabout"
 if TEST: SCENE = "roundabout" 
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-# seeds = [5000, 6000, 7000]
-seeds = [7000]
+seeds = [5000, 6000, 7000]
+# seeds = [7000]
 
 num_agents = [4, 8, 16, 30]
 # num_agents = [16]
 
-EXP_DES = "no_lidar"
+EXP_DES = "no-nei-navi"
 # EXP_DES = "16a_nei_state"
 
 
@@ -70,10 +70,12 @@ if __name__ == "__main__":
         return_single_space=True,
         start_seed=tune.grid_search(seeds),
         vehicle_config=dict(
-            lidar=dict(num_lasers=tune.grid_search([0]), distance=40, num_others=0),
+            lidar=dict(num_lasers=0, distance=40, num_others=0),
+            # lidar=dict(num_lasers=tune.grid_search([0]), distance=40, num_others=0),
         ),
         # == neighbour config ==
         neighbour_states=True,
+        nei_navi=tune.grid_search([False]),
         # num_neighbours=tune.grid_search([1, 2, 3]),
         num_neighbours=4,
         # neighbours_distance=tune.grid_search([10, 20, 30]),

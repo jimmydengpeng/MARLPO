@@ -1,0 +1,193 @@
+from typing import List, Dict
+import itertools
+import os
+import os.path as osp
+import re
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from tqdm import tqdm
+sns.set()
+
+import rich
+from marlpo.utils.debug import printPanel, print
+rich.get_console().width += 30
+
+# 设置需要的列：
+# x = 'num_env_steps_trained'
+x = 'timesteps_total'
+succ = 'SuccessRate'
+crash = 'CrashRate'
+out = 'OutRate'
+maxstep = 'MaxStepRate'
+# reward = 'Reward' #TODO
+all_col = [x, succ, crash, out, maxstep]
+succ_col = [x, succ]
+crash_col = [x, crash]
+out_col = [x, out]
+maxstep_col = [x, maxstep]
+
+all_metrics = {
+    'succ': succ_col, 
+    'out': out_col, 
+    'crash': crash_col, 
+    'maxstep': maxstep_col,
+}
+# succ_rew_col = [x, succ, rew]
+
+
+def get_param_patthern(param_space: Dict[str, List[str]], verbose=False) -> Dict:
+    ''' 根据一个包含参数名和相应参数值的参数空间字典
+        自动从一个字典中生成所有参数空间的笛卡尔积
+        并生成对应的正则表达式
+        用于匹配实验目录名
+    args:
+        param_space: {
+            param_name_0: [[label, ...], [param_value, ...]],
+            param_name_1: [param_value, ...], NOTE: 参数空间也可以不带标签
+            ...
+        } NOTE: 生成的正则表达式内的各项也是按照字典键的顺序
+
+    returns:
+        一个字典 包含参数空间的键值对的排列 以其对应的标签 (plt绘图用) 为键 如:  {
+            param_0_label & param_1_lable ... : 'param_name_0=param_0_value_0,param_name_1=param_1_value_0',
+            ...
+        }
+    '''
+    msg = {}
+    msg['input params'] = f'{str(list(param_space.keys()))}'
+
+    res = {}
+    all_param_list = []
+    all_label_list = []
+    for key, space in param_space.items():
+        one_param_list = []
+        one_label_list = []
+        # 如果有标签简写
+        if isinstance(space[0], list) and len(space) == 2:
+            labels = space[0]
+            values = space[1]
+            assert len(labels) == len(values) # 保证标签数与参数值数量一致
+            all_label_list.append(labels)
+            for v in values:
+                one_param_list.append(f'{key}={v}')
+        # 如果没有标签简写
+        else:
+            p_space = space
+            for p in p_space:
+                one_label_list.append(f'{key}={p}')
+                one_param_list.append(f'{key}={p}')
+            all_label_list.append(one_label_list)
+        all_param_list.append(one_param_list)
+
+    all_param_product = list(itertools.product(*all_param_list)) # list of tuple, a tuple is a product
+    all_label_product = list(itertools.product(*all_label_list)) # list of tuple, a tuple is a product
+   
+    for l, p in zip(all_label_product, all_param_product):
+        key = ' & '.join(l)
+        # key = l
+        pattern = r'(.*?)'.join(p)
+        res[key] = pattern
+
+    product_helper_str = 'x'.join([str(len(pl)) for pl in all_param_list])
+    msg['param combinations'] = f'total {product_helper_str}={len(res)} combinations'
+    msg['==']= '-'
+    msg['label'] = 're pattern:'
+    msg['-']= '-'
+    for i, k in enumerate(res):
+        msg[f'(label {i+1}) ' + k] = res[k]
+    
+    if verbose:
+        printPanel(msg, title=f'generating total {len(param_space)} param spaces')
+
+    return res
+
+
+# 给定一个实验目录，和一个正则表达式匹配式，筛序出该目录下所有符合该表达式的目录，并返回其中的progress.csv文件内所需要的列
+def read_csv_in_dir(exp_dir, param_pattern, columns: list, verbose=False):
+    trial_dirs = [entry for entry in os.listdir(exp_dir) if osp.isdir(osp.join(exp_dir, entry))]
+    csv_list = []
+    all_seeds = []
+
+    seed_pattern = r'start_seed=(\d*)'
+
+    if verbose:
+        print(f'Reading csv in {exp_dir}...')
+        trial_dirs = tqdm(trial_dirs)
+    for d in trial_dirs:
+        if re.search(param_pattern, d):
+            match = re.search(seed_pattern, d)
+            if match: 
+                seed = match.group()[len('start_seed='):]
+                all_seeds.append(seed)
+            file_path = osp.join(exp_dir, d, 'progress.csv')
+            progress = pd.read_csv(file_path)
+            data = progress[columns]
+            # data['seed'] = int(seed)
+            csv_list.append(data)
+
+            if verbose:
+                print('found param pattern:', param_pattern)
+    
+    if verbose:
+        print(f'Finished reading {len(all_seeds)} seed: ', ', '.join(all_seeds))
+    return csv_list
+
+
+# 输入一个data，包含以同一组数据为x轴的多个种子的多列数据，按相同x值聚集某列的不同种子的数据，并绘制均值、标准差
+def plot_mean_std(data, x: str, col: List[str], title=None, lable=None):
+    for c in col:
+        if c != x:
+            mean_values = data.groupby(x)[c].mean()
+            std_values = data.groupby(x)[c].std()
+
+            # 绘制均值和标准差曲线
+            label = lable if lable else c
+            plt.plot(mean_values.index, mean_values.values, label=lable)
+            plt.fill_between(mean_values.index, mean_values - std_values, mean_values + std_values, alpha=0.25)
+
+            # 设置图例和标签
+            plt.title(title)
+            plt.legend(title='', loc='upper left')
+            plt.xlabel('Environmental Step')
+            plt.ylabel('rate')
+
+# 输入一个data，包含以同一组数据为x轴的多个种子的多列数据，按相同x值聚集某列的不同种子的数据，并绘制均值、标准差
+def plot_mean_std(data, x: str, col: List[str], title=None, lable=None):
+    for c in col:
+        if c != x:
+            mean_values = data.groupby(x)[c].mean()
+            std_values = data.groupby(x)[c].std()
+
+            # 绘制均值和标准差曲线
+            label = lable if lable else c
+            plt.plot(mean_values.index, mean_values.values, label=lable)
+            plt.fill_between(mean_values.index, mean_values - std_values, mean_values + std_values, alpha=0.25)
+
+            # 设置图例和标签
+            plt.title(title)
+            plt.legend(title='', loc='upper left')
+            plt.xlabel('Environmental Step')
+            plt.ylabel('rate')
+
+# 简单从一个exp目录根据pattern筛选所有trial，分别读取csv文件，再拼接，然后按x轴聚集不同种子绘制均值、标准差图
+
+def plot_one_exp(exp_dir, param_pattern=None, col=None, title=None, exp_label=None, verbose=False):
+    if not param_pattern:
+        param_pattern = r'start_seed=(\d*)'
+    if not col:
+        col = succ_col
+    df_list = read_csv_in_dir(exp_dir, param_pattern, col, verbose=verbose)
+    data = pd.concat(df_list)
+    plot_mean_std(data, x, col, title=title, lable=exp_label)
+
+
+if __name__ == "__main__":
+    param_space = {
+    'use_attention': [['atn', 'mlp'], ['True', 'False']],
+    # 'use_attention': [['atn'], ['True']],
+    'random_order': [['ro', 'id'], ['True', 'False']],
+    'cf': ['True'],
+    }
+
+    print(get_param_patthern(param_space, verbose=True))

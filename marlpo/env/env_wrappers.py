@@ -36,10 +36,30 @@ COMM_METHOD = "comm_method"
 
 NEI_OBS = "nei_obs"
 
-EGO_DIM = 9
+''' obs:
+╭─────────────────  before  ─────────────────╮
+│  [ego state] [navi 0] [navi 1] [lidar]     │
+│       9          5        5      72        │
+╰────────────────────────────────────────────╯
+╭──────────────────────  after  ─────────────────────────╮
+│  [ego state] [navi 0] [navi 1] [nei state]... [lidar]  │
+│      2+9         5        5         *            72    │
+╰────────────────────────────────────────────────────────╯
+'''
+# unchanged:
 NAVI_DIM = 5
-OLD_STATE_DIM = EGO_DIM + 2*NAVI_DIM # 9 + 5x2 = 19 
-NEW_STATE_DIM = OLD_STATE_DIM + 2 # add additional x, y pos of each vehicle
+
+# old:
+OLD_EGO_DIM = 9
+OLD_STATE_NAVI_DIM = OLD_EGO_DIM + 2*NAVI_DIM # 9 + 5x2 = 19 
+# NEW_STATE_DIM = OLD_STATE_NAVI_DIM + 2 # add additional x, y pos of each vehicle 
+
+# new
+NEW_EGO_DIM = 2 + OLD_EGO_DIM
+COMPACT_EGO_DIM = 3 # x, y, v,
+
+# TODO: OBS Structure dict: {EGO: dim, EGO_NAVI_0, EGO_NAVI_1, NEI_EGO ..., LIDAR}
+# can also be passed to custom model's config
 
 WINDOW_SIZE = 150
 
@@ -61,13 +81,23 @@ class CCEnv:
                 traffic_light_interval=30,
                 # == neighbours config ==
                 neighbour_states=False, # if True, obs returned will contain neighbours' states
-                num_neighbours=4, # determine observation_space, i.e., how many neighbours can be observed
+                nei_navi=False, # if including nei's navi info into neighbour states
+                # compact_nei_state=False, # if use necessary nei states
+                num_neighbours=4, # determine up-to how many neighbours can be observed
             )
         )
         return config
+    
+    def validate_config(self):
+        if not self.config['neighbour_states']:
+            self.config['nei_navi'] = False
+            self.config['compact_nei_state'] = False
 
     def __init__(self, *args, **kwargs):
         super(CCEnv, self).__init__(*args, **kwargs)
+
+        self.validate_config()
+
         self.distance_map = defaultdict(lambda: defaultdict(lambda: float("inf")))
         if self.config["communication"][COMM_METHOD] != "none":
             self._comm_obs_buffer = defaultdict()
@@ -78,6 +108,7 @@ class CCEnv:
             self._comm_dim = self.config["communication"]["comm_size"]
 
         self._last_info = defaultdict(dict)
+
 
     def _get_reset_return(self):
         if self.config["communication"][COMM_METHOD] != "none":
@@ -105,6 +136,18 @@ class CCEnv:
         )
         return new_action_space
 
+    # TODO: refactor
+    def _compute_nei_state_dim(self) -> int:
+        if not self.config['neighbour_states']:
+            return 0
+        else:
+            if not self.config['nei_navi']:
+                return NEW_EGO_DIM
+            elif self.config['nei_navi']:
+                return NEW_EGO_DIM + 2 * NAVI_DIM
+            else:
+                raise NotImplementedError
+        
     @property
     def observation_space(self) -> gym.Space:
         """
@@ -118,8 +161,9 @@ class CCEnv:
         if self.config["return_single_space"]:
             assert isinstance(old_obs_space, old_gym.spaces.Box)
             if self.config['neighbour_states']:
-                lidar_dim = old_obs_space.shape[0] - OLD_STATE_DIM # 72 by default, maybe 0
-                length = (self.config['num_neighbours']+1) * NEW_STATE_DIM + lidar_dim
+                lidar_dim = old_obs_space.shape[0] - OLD_STATE_NAVI_DIM # 72 by default, maybe 0
+                nei_state_dim = self._compute_nei_state_dim()
+                length = 2 + OLD_STATE_NAVI_DIM + self.config['num_neighbours'] * nei_state_dim + lidar_dim
                 obs_space = old_gym.spaces.Box(
                     low=np.array([-1.0] * length), 
                     high=np.array([1.0] * length), 
@@ -179,12 +223,13 @@ class CCEnv:
         for agent, o in obs.items():
             neighbours = infos[agent]["neighbours"]
             num_neighbours = self.config['num_neighbours']
-            nei_states = np.zeros((num_neighbours, NEW_STATE_DIM))
-            nei_s_list = [ obs[nei][:NEW_STATE_DIM] for nei in neighbours ]
+            nei_state_dim = self._compute_nei_state_dim()
+            nei_states = np.zeros((num_neighbours, nei_state_dim))
+            all_nei_states = [ obs[nei][:nei_state_dim] for nei in neighbours ]
             
-            for i, nei_s in zip(range(num_neighbours), nei_s_list):
+            for i, nei_s in zip(range(num_neighbours), all_nei_states):
                 nei_states[i] = nei_s
-            new_o[agent] = np.insert(o, NEW_STATE_DIM, nei_states.flatten())
+            new_o[agent] = np.insert(o, nei_state_dim, nei_states.flatten())
         return new_o
                
     def reset(
@@ -716,7 +761,8 @@ if __name__ == "__main__":
         ),
         # == neighbour config ==
         neighbour_states=True,
-        num_neighbours=2,
+        nei_navi=False,
+        num_neighbours=4,
         neighbours_distance=20,
     )
 
@@ -739,12 +785,12 @@ if __name__ == "__main__":
         env.current_track_vehicle.expert_takeover = True 
 
     print(env.observation_space)
+    exit()
 
     # print(o['agent0'])
     # print(i['agent0'])
     # print(o['agent1'])
     # print(i['agent1'])
-    # exit()
 
     # env.render(mode="top_down", file_size=(800,800))
 

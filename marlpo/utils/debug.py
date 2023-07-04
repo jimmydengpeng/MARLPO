@@ -54,8 +54,11 @@ def pretty_print(result):
 
 
 class ValueWrapper:
-    SEPARATOR = 'SEPARATOR'
+    GRID = 'GRID' # for table, use '-', under key & value each
+    SEPARATOR = 'SEPARATOR' # for continuous separator, only one line
     DATA = 'DATA'
+    GRID_DASH = '-'
+    SEPARATOR_DASH = '─'
 
     def __init__(self, data, raw_tensor):
         self.raw_data = data 
@@ -65,14 +68,21 @@ class ValueWrapper:
 
     # wrap the converting logic
     def _convert(self, data, raw_tensor) -> str:
-        # print('coverting...', data)
+
+        def contains_only(data, c):
+            if not isinstance(data, str):
+                return False
+            return all(char == c for char in data)
         s = ''
         if self._is_tensor_type(data):
             if not raw_tensor:
                 s = self._refine_tensor_type(data)
             else:
                 s = '\n' + str(data)
-        elif data == '-' or data == '--' or data == '---' or data == '----': # TODO: any number of -
+        elif contains_only(data, '-'):
+            self.type = self.GRID
+            s = data
+        elif contains_only(data, '*'):
             self.type = self.SEPARATOR
             s = data
         else:
@@ -89,21 +99,27 @@ class ValueWrapper:
             return False
 
     def _refine_tensor_type(self, data):
+        if np.product(data.shape) < 20:
+            return str(data)
         if isinstance(data, torch.Tensor):
-            if len(data.shape) == 0:
-                return str(data)
-            elif len(data.shape) == 1 and data.shape[0] == 1:
-                return str(data)
-            else:
-                return str(data.shape)
+            return str(data.shape)
         elif isinstance(data, np.ndarray):
             return type(data).__name__ + '.shape=' + str(data.shape)
+        else:
+            return str(data)
+
+    def _get_max_len(self, data: str):
+        lines = data.split('\n')
+        max_len = 0
+        for l in lines:
+            max_len = max(max_len, len(l))
+        return max_len
     
     def __str__(self) -> str:
         return self.str_data
 
     def __len__(self):
-        return len(self.str_data)
+        return self._get_max_len(self.str_data)
 
 
 def process_value(
@@ -122,91 +138,6 @@ def process_value(
             new_dict[k] = ValueWrapper(v, raw_tensor)
 
     return new_dict
-
-
-
-
-
-
-def dict_to_str(
-        a_dict: dict, 
-        indent=2, 
-        use_json=False, 
-        raw_tensor=False, 
-        align=False
-    ):
-    """Convert a dict to a string that translate every key-value pair and its
-    sub-dict key-value pairs into separate rows. 
-
-    If a key-value is '-': '-', it means a dash-line saparator, and it will be
-    converted to a '-'*N line, the length will be inferred automatically.
-
-    Args:
-        a_dict: the input dict to transfer to a str.
-        indent: number of space before each sub-row.
-        use_json: whether to use json encoder.
-        raw_tensor: output raw numbers for numpy and tensor if True; otherwize
-            only output types of them.
-        align: whether to align each key's colon.
-    """
-    # 1. hand-written conversion
-    def get_max_key_len(d):
-        max_len = 0
-        for k in d:
-            max_len = max(len(k), max_len)
-        return max_len
-
-    def get_max_kv_len(d):
-        max_len = 0
-        for k, v in d.items():
-            if isinstance(v, dict):
-                sub_len = get_max_kv_len(v) + indent
-                max_len = max(max_len, sub_len)
-            else:
-                max_len = max(max_len, len(k) + 2 + len(v))
-        return max_len
-
-    max_key_len = get_max_key_len(a_dict)
-
-    if not use_json:
-        newline_prefix = False
-        res_str = ''
-        for k, v in a_dict.items():
-            if not newline_prefix:
-                prefix = ''
-                newline_prefix = True
-            else:
-                prefix = '\n'
-
-            if isinstance(v, dict):
-                vv = dict_to_str(v)
-                # v = '\n' + v
-                v = []
-                for l in vv.split('\n'):
-                    v.append(' '*indent + l)
-                v = '\n' + '\n'.join(v)
-            elif is_tensor_type(v):
-                if not raw_tensor:
-                    v = refine_tensor_type(v)
-                else:
-                    v = '\n' + str(v)
-            
-            if k == v == '-':
-                max_line_len = get_max_kv_len(a_dict)
-                res_str += '-'*max_line_len
-
-            else:
-                if align:
-                    key_str = (k+': ').ljust(max_key_len+2)
-                else:
-                    key_str = k + ': '
-                res_str += prefix + key_str + f'{v}'
-
-    # 2. use json dump
-    else:
-        res_str = json.dumps(a_dict, indent=indent)
-
-    return res_str
 
 
 def get_max_key_len(d) -> int:
@@ -238,7 +169,7 @@ def get_max_kv_len(d: Dict[str, ValueWrapper], indent, align):
             max_len = max(max_len, max_key_len+2+len(v))
     return max_len
 
-def new_dict_to_str(
+def dict_to_str(
         a_dict: Dict[str, ValueWrapper], 
         indent=2, 
         use_json=False, 
@@ -277,7 +208,7 @@ def new_dict_to_str(
 
             # 1. dict
             if isinstance(v, dict):
-                vv = new_dict_to_str(v, align=align)
+                vv = dict_to_str(v, align=align)
                 shift = cur_indent + 2
                 l = [' '*shift + line for line in vv.split('\n')]
                 v_str = '\n' + '\n'.join(l)
@@ -285,13 +216,20 @@ def new_dict_to_str(
                 res_str += prefix + k_str + ': ' + v_str
 
             # 2. '---'
-            elif v.type == ValueWrapper.SEPARATOR:
+            # TODO: allow continuous dash separator
+            elif v.type == ValueWrapper.GRID:
                 max_line_len = get_max_kv_len(a_dict, indent=cur_indent, align=align)
-                k_str = '-'*(max_key_len+1)
-                v_str = '-'*(max_line_len-len(k_str)-1)
+                k_str = ValueWrapper.GRID_DASH*(max_key_len+1)
+                v_str = ValueWrapper.GRID_DASH*(max_line_len-len(k_str)-1)
                 res_str += prefix + k_str + ' ' + v_str
 
-            # 3. normal in-line data
+            # 3. '*'
+            elif v.type == ValueWrapper.SEPARATOR:
+                max_line_len = get_max_kv_len(a_dict, indent=cur_indent, align=align)
+                _str = ValueWrapper.SEPARATOR_DASH*(max_line_len-1)
+                res_str += prefix + _str
+
+            # 4. normal in-line data
             elif v.type == ValueWrapper.DATA:
                 if align: 
                     k_str = (k+': ').ljust(max_key_len+2)
@@ -302,7 +240,6 @@ def new_dict_to_str(
             else:
                 raise NotImplementedError
 
-
     # 2. use json dump
     else:
         res_str = json.dumps(a_dict, indent=indent)
@@ -310,15 +247,16 @@ def new_dict_to_str(
     return res_str
 
 
-def new(a_dict):
-    new_dict = process_value(a_dict)
-    return new_dict_to_str(new_dict)
-
-
-
-
 def log(title: str = None, obj=None, docs=False):
     inspect(obj=obj, title=title, docs=docs)
+
+
+def colorize(s: str, color: str):
+    ''' wrap a str with rich's color tag
+    args:
+        color: a hex color str
+    '''
+    return '[bold][' + color + ']' + s + '[/]'
 
 
 def printPanel(msg, title=None, raw_output=False, align=True, **kwargs):
@@ -328,7 +266,7 @@ def printPanel(msg, title=None, raw_output=False, align=True, **kwargs):
         msg = str(msg)
     elif isinstance(msg, dict):
         new_dict = process_value(msg)
-        msg = new_dict_to_str(new_dict, raw_tensor=raw_output, align=align)
+        msg = dict_to_str(new_dict, raw_tensor=raw_output, align=align)
     else:
         print(f'[Warning] utils.py:printPanel -- msg with type {type(msg)}')
 
@@ -355,7 +293,7 @@ if __name__ == '__main__':
     data = {
         'name': 'John',
         'age': 30,
-        '-': '-',
+        '*': '*',
         'data_0': 'DATA0',
         'data_1': d0,
         'data_2': {

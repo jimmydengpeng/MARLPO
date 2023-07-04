@@ -9,23 +9,29 @@ from ray.rllib.utils.typing import Dict, TensorType, List, Tuple, ModelConfigDic
 from modules.attention import MultiHeadSelfAttention
 from marlpo.utils.debug import inspect, printPanel
 
-NEIGHBOUR_ACTIONS = "neighbour_actions"
+# NEIGHBOUR_ACTIONS = "neighbour_actions"
 
-METADRIVE_MULTI_AGENT_OBS_SHAPES = {
-    'obs_ego': (9, ),
-    'obs_navi': (2, 5),
-    'obs_lidar': (72, ),
-}
+# METADRIVE_MULTI_AGENT_OBS_SHAPES = {
+#     'obs_ego': (9, ),
+#     'obs_navi': (2, 5),
+#     'obs_lidar': (72, ),
+# }
 
 AGENT_WISE_OBS_SHAPE = {
-    'ego_state': (11, ),
-    'ego_navi': (2, 5),
-    'nei_state': (4, 11),
-    # 'lidar': (72, ),
+    'ego_state': (21, ),
+    # 'ego_navi': (2, 5),
+    'nei_state': (4, 21), # num_neighbours * dim
+    # 'nei_navi': (2, 5),
+    'lidar': (72, ),
 }
 
 EMBEDDINGS = {
-    'state': 11,
+    'state': 21,
+} # how many embedding laysers should init
+
+OBS_TO_EMBEDDINGS = {
+    'ego_state': 'state_embedding',
+    'nei_state': 'state_embedding',
 }
 
 def get_layer(input_dim, output_dim, num_layers=1, layer_norm=False):
@@ -60,6 +66,8 @@ class AgentwiseObsEncoder(nn.Module):
 
         # == 1. Set embeddings ==
         self.obs_shapes = custom_model_config.get('obs_shapes', AGENT_WISE_OBS_SHAPE)
+        self.num_neighbours = custom_model_config['num_neighbours']
+        self.validate()
         self.set_emdedding_layers(hidden_dim)
 
         # self.act_embedding = get_layer(act_dim, hidden_dim)
@@ -83,6 +91,13 @@ class AgentwiseObsEncoder(nn.Module):
         # policy head should have a smaller scale
         nn.init.orthogonal_(self.policy_head.weight.data, gain=0.01)
     
+    def validate(self):
+        all_dim = 0
+        for name, shape in self.obs_shapes.items():
+            all_dim += np.product(shape)
+        assert self.obs_dim == all_dim
+        self.obs_shapes['nei_state'][0] == self.num_neighbours
+
     def set_emdedding_layers(self, hidden_dim):
         _obs_dim_check = 0
         for k, shape in self.obs_shapes.items():
@@ -104,17 +119,15 @@ class AgentwiseObsEncoder(nn.Module):
         return res
             
 
-    # def forward(self, obs, onehot_action, execution_mask=None):
     def forward(
         self,
         # input_dict: Dict[str, TensorType],
         obs: TensorType,
-        nei_actions: TensorType,
+        # nei_actions: TensorType,
         execution_mask=None, # TODO
     ) -> Tuple[TensorType, List[TensorType]]:
         ''' args:
                 obs: shape(BatchSize, obs_dim)
-                nei_actions: Size(BS, num_nei, act_dim), e.g. (1,4,2)
                 execution_mask: Size(BS, num_nei), e.g. (1, 4)
         '''
         _msg = {}
@@ -122,6 +135,37 @@ class AgentwiseObsEncoder(nn.Module):
         assert obs.shape[-1] == self.obs_dim 
         
         # 1. slicing the obs
+        lidar_dim = self.obs_shapes['lidar']
+        ego_nei_dim = self.obs_dim - lidar_dim
+        t_ego_nei = obs[:][:ego_nei_dim]
+        t_lidar = obs[:][ego_nei_dim:]
+        _pre_idx = 0
+        for state in OBS_TO_EMBEDDINGS:
+            idx = self.obs_shapes[state]
+            obs[:][] 
+
+        _pre_idx = 0
+        for k, shape in self.obs_shapes.items():
+            if 'lidar' not in k:
+                _cur_idx = _pre_idx + np.product(shape)
+                obs_dict[k] = obs[:, _pre_idx:_cur_idx].reshape(-1, *shape)
+                _pre_idx = _cur_idx
+        _msg['obs.shape'] = obs.shape
+        # _msg['obs'] = obs
+        __msg = {}
+        for k, t in obs_dict.items():
+            __msg[k] = t.shape
+        _msg['obs_dict'] = __msg
+        # _msg['obs_dict'] = obs_dict
+
+
+
+
+
+
+
+
+
         obs_dict = {} # add keys: obs_ego, obs_navi, obs_lidar
         _pre_idx = 0
         for k, shape in self.obs_shapes.items():

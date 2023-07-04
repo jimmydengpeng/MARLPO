@@ -1,20 +1,24 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 import copy
 from collections import defaultdict
-from math import cos, sin
+from math import cos, sin, pi
+import numpy as np
 
 import gym as old_gym
+import gym.spaces as old_gym_spaces
 import gymnasium as gym
 from gymnasium.spaces import Box
 
-import numpy as np
+from metadrive.component.vehicle.base_vehicle import BaseVehicle
 from metadrive.utils import get_np_random, clip
-
 
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.gym import convert_old_gym_space_to_gymnasium_space, check_old_gym_env
 from ray.tune.registry import register_env
+
 from marlpo.env.env_utils import metadrive_to_terminated_truncated_step_api
+from marlpo.utils.debug import colorize
+
 
 
 
@@ -36,27 +40,40 @@ COMM_METHOD = "comm_method"
 
 NEI_OBS = "nei_obs"
 
+# === KEYS ===
+EGO_STATE = 'ego_state'
+COMPACT_EGO_STATE = 'compact_ego_state'
+
+
 ''' obs:
-╭─────────────────  before  ─────────────────╮
-│  [ego state] [navi 0] [navi 1] [lidar]     │
+╭─ before ───────────────────────────────────╮
+│  [ego_state] [navi_0] [navi_1] [lidar]     │
 │       9          5        5      72        │
 ╰────────────────────────────────────────────╯
-╭──────────────────────  after  ─────────────────────────╮
-│  [ego state] [navi 0] [navi 1] [nei state]... [lidar]  │
-│      2+9         5        5         *            72    │
-╰────────────────────────────────────────────────────────╯
+
+╭─ after ────────────────────────────────────╮
+│  [compact_ego_state]                   8   │ ──╮
+│ ────────────────────────────────────────── │   │ 
+│  [ego-state]                           9   │   ├───> [x, y, vx, vy, heading, speed, steering, yaw_rate]
+│  [ego-navi]                         2x 5   │   │
+│ ────────────────────────────────────────── │   │   
+│  [compact-nei-state]...             Nx 8   │ ──╯
+│  [nei-state]...                     Nx 9   │
+│ ────────────────────────────────────────── │
+│  [lidar]                              72   │
+╰────────────────────────────────────────────╯
 '''
 # unchanged:
+STATE_DIM = 9
 NAVI_DIM = 5
+NUM_NAVI = 2
 
 # old:
-OLD_EGO_DIM = 9
-OLD_STATE_NAVI_DIM = OLD_EGO_DIM + 2*NAVI_DIM # 9 + 5x2 = 19 
+# OLD_STATE_NAVI_DIM = OLD_EGO_DIM + 2*NAVI_DIM # 9 + 5x2 = 19 
 # NEW_STATE_DIM = OLD_STATE_NAVI_DIM + 2 # add additional x, y pos of each vehicle 
 
 # new
-NEW_EGO_DIM = 2 + OLD_EGO_DIM
-COMPACT_EGO_DIM = 3 # x, y, v,
+COMPACT_STATE_DIM = 8 # x, y, vx, vy, heading, speed, steering, yaw_rate
 
 # TODO: OBS Structure dict: {EGO: dim, EGO_NAVI_0, EGO_NAVI_1, NEI_EGO ..., LIDAR}
 # can also be passed to custom model's config
@@ -76,137 +93,123 @@ class CCEnv:
         config["neighbours_distance"] = 40
         config.update(
             dict(
-                communication=dict(comm_method="none", comm_size=4, comm_neighbours=4, add_pos_in_comm=False),
-                add_traffic_light=False,
-                traffic_light_interval=30,
+                use_dict_obs=False,
                 # == neighbours config ==
-                neighbour_states=False, # if True, obs returned will contain neighbours' states
-                nei_navi=False, # if including nei's navi info into neighbour states
-                # compact_nei_state=False, # if use necessary nei states
-                num_neighbours=4, # determine up-to how many neighbours can be observed
+                add_compact_state=False, # if use necessary nei states
+                # augment_ego_state=False,
+                add_nei_state=False, # if True, obs returned will contain neighbour's state
+                # nei_navi=False, # if True, will include nei's navi info
+                num_neighbours=4, # up-to how many neighbours can be observed
             )
         )
         return config
     
     def validate_config(self):
-        if not self.config['neighbour_states']:
-            self.config['nei_navi'] = False
-            self.config['compact_nei_state'] = False
+        self.num_neighbours = self.config.get('num_neighbours', 0)
+        self.lidar_dim = self.config['vehicle_config']['lidar']['num_lasers']
+        # 如果没有增加任何观测，并且也没有使用字典观测空间，就返回原始空间
+        self.return_original_obs = not (
+            self.config.get('add_compact_state', False) 
+            or self.config.get('add_compact_state', False)
+        ) and not self.config.get('use_dict_obs', False) 
+
+        self.obs_dim = self._compute_obs_dim()
+        self.old_obs_shape = self._get_original_obs_shape()
+        self.new_obs_shape, _obs_dim = self._get_new_obs_shape(self.old_obs_shape)
+        assert self.obs_dim == _obs_dim
+
+    def _compute_obs_dim(self) -> int: # called only when __init__
+        ''' 根据 self.config 计算观测空间的维度
+        '''
+        old_obs_space: old_gym_spaces.Space = super().observation_space
+        dim = np.product(old_obs_space.shape)
+        if self.config.get('add_compact_state', False):
+            dim += (self.num_neighbours+1) * COMPACT_STATE_DIM
+        if self.config.get('add_nei_state', False):
+            dim += (self.num_neighbours) * STATE_DIM
+        return dim
+
+    def _get_original_obs_shape(self):
+        return {
+            'ego_state': (STATE_DIM, ) ,
+            'ego_navi': (NUM_NAVI, NAVI_DIM),
+            'lidar': (self.lidar_dim, ),
+        }
+
+    def _get_new_obs_shape(self, old_shape) -> Tuple[Dict, int]:
+        ''' get a dict of obs structure, including obs's names & dims
+        '''
+        res = {}
+        if self.config.get('add_compact_state', False):
+            res['compact_ego_state'] = (COMPACT_STATE_DIM, )
+            res['ego_state'] = old_shape['ego_state']
+            res['ego_navi'] = old_shape['ego_navi']
+            res['compact_nei_state'] = (self.num_neighbours, COMPACT_STATE_DIM)
+        else:
+            res['ego_state'] = old_shape['ego_state']
+            res['ego_navi'] = old_shape['ego_navi']
+
+        if self.config.get('add_nei_state', False):
+            res['nei_state'] = (self.num_neighbours, STATE_DIM)
+
+        res['lidar'] = old_shape['lidar']
+
+        total_dim = 0
+        for name, shape in res.items():
+            total_dim += np.product(shape)
+
+        return res, total_dim
+
 
     def __init__(self, *args, **kwargs):
         super(CCEnv, self).__init__(*args, **kwargs)
-
         self.validate_config()
-
         self.distance_map = defaultdict(lambda: defaultdict(lambda: float("inf")))
-        if self.config["communication"][COMM_METHOD] != "none":
-            self._comm_obs_buffer = defaultdict()
-
-        if self.config["communication"]["add_pos_in_comm"]:
-            self._comm_dim = self.config["communication"]["comm_size"] + 3
-        else:
-            self._comm_dim = self.config["communication"]["comm_size"]
-
         self._last_info = defaultdict(dict)
 
 
-    def _get_reset_return(self):
-        if self.config["communication"][COMM_METHOD] != "none":
-            self._comm_obs_buffer = defaultdict()
-        return super(CCEnv, self)._get_reset_return()
+    def get_dict_obs_space(
+        self, 
+        obs_shape: Dict[str, Tuple[int, ...]], 
+        dtype,
+    ) -> old_gym_spaces.Dict:
+        ''' 根据输入的观测空间的形状字典，返回一个字典空间
+        '''
+        dict_space = {}
+        for name, shape in obs_shape.items():
+            dict_space[name] = old_gym_spaces.Box(
+                low=-1.0, 
+                high=1.0, 
+                shape=shape, 
+                dtype=dtype 
+            )
+        return old_gym_spaces.Dict(dict_space)
+    
+
+    def get_box_obs_space(self, obs_dim: int, dtype) -> old_gym_spaces.Box:
+        return old_gym.spaces.Box(
+            low=-1.0, 
+            high=1.0, 
+            shape=(obs_dim, ), 
+            dtype=dtype)
+
 
     @property
-    def action_space(self):
-        old_action_space = super(CCEnv, self).action_space
-        if not self.config["communication"][COMM_METHOD] != "none":
-            return old_action_space
-        assert isinstance(old_action_space, Dict)
-        new_action_space = Dict(
-            {
-                k: Box(
-                    low=single.low[0],
-                    high=single.high[0],
-                    dtype=single.dtype,
-
-                    # We are not using self._comm_dim here!
-                    shape=(single.shape[0] + self.config["communication"]["comm_size"], )
-                )
-                for k, single in old_action_space.spaces.items()
-            }
-        )
-        return new_action_space
-
-    # TODO: refactor
-    def _compute_nei_state_dim(self) -> int:
-        if not self.config['neighbour_states']:
-            return 0
-        else:
-            if not self.config['nei_navi']:
-                return NEW_EGO_DIM
-            elif self.config['nei_navi']:
-                return NEW_EGO_DIM + 2 * NAVI_DIM
-            else:
-                raise NotImplementedError
-        
-    @property
-    def observation_space(self) -> gym.Space:
+    def observation_space(self):
         """
         Return observation spaces of active and controllable vehicles
         :return: Dict
         """
-        old_obs_space = super(CCEnv, self).observation_space
-        if not self.config['neighbour_states']:
+        old_obs_space = super().observation_space
+        if self.return_original_obs:
             return old_obs_space
-
-        if self.config["return_single_space"]:
-            assert isinstance(old_obs_space, old_gym.spaces.Box)
-            if self.config['neighbour_states']:
-                lidar_dim = old_obs_space.shape[0] - OLD_STATE_NAVI_DIM # 72 by default, maybe 0
-                nei_state_dim = self._compute_nei_state_dim()
-                length = 2 + OLD_STATE_NAVI_DIM + self.config['num_neighbours'] * nei_state_dim + lidar_dim
-                obs_space = old_gym.spaces.Box(
-                    low=np.array([-1.0] * length), 
-                    high=np.array([1.0] * length), 
-                    shape=(length, ), 
-                    dtype=old_obs_space.dtype 
-                )
-                    
-                return obs_space
-        
-        # TODO:
+        assert self.config["return_single_space"]
+        # 1. dict_obs_shape
+        if self.config['use_dict_obs']:
+            return self.get_dict_obs_space(self.new_obs_shape, old_obs_space.dtype)
+        # 2. box_obs_shape
         else:
-            raise NotImplementedError
-
-
-    def _insert_pos_in_obs(self, o: Dict[str, np.ndarray], infos): 
-        """ 1. cache last x, y pos in info
-            2. add x, y position in each vehicle's obs
-            NOTE: excluding vehicles just terminated (can't get Vehicle Instance)
-        """
-
-        new_o = {}
-        for agent, obs in o.items():
-            if hasattr(self, "vehicles_including_just_terminated"):
-                vehicles = self.vehicles_including_just_terminated
-            else:
-                vehicles = self.vehicles 
-            if vehicles[agent]:
-                pos = vehicles[agent].position
-            else:
-                pos = self._last_info[agent].get('last_pos', (0, 0))
-                # msg = {}
-                # msg['agent'] = agent
-                # msg['vehicles'] = vehicles
-                # msg['obs'] = o[agent]
-                # msg['pos'] = pos
-                # msg['info'] = infos[agent]
-                # msg['last_info'] = self._last_info[agent]
-                # printPanel(msg)
-            infos[agent]['last_pos'] = pos
-            new_o[agent] = np.insert(obs, 0, np.array(pos)/WINDOW_SIZE)
-
-        # print(infos)
-        return new_o
+            return self.get_box_obs_space(self.obs_dim, old_obs_space.dtype)
 
 
     def _add_neighbour_info(self, agents, infos):
@@ -231,60 +234,170 @@ class CCEnv:
                 nei_states[i] = nei_s
             new_o[agent] = np.insert(o, nei_state_dim, nei_states.flatten())
         return new_o
-               
+
+
+    def obs_to_dict(
+        self, 
+        o: np.ndarray, 
+        obs_shape: Dict[str, Tuple[int, ...]],
+    ):
+        ''' 将一个单智能体观测从numpy数组按照字典形状转换为一个字典
+        '''
+        res = {}
+        pre_idx = 0
+        for name, shape in obs_shape.items():
+            cur_idx = pre_idx + np.product(np.array(shape))
+            res[name] = o[pre_idx: cur_idx].reshape(shape)
+            pre_idx = cur_idx
+        return res
+
+
+    def flatten_obs_dict(
+        self, 
+        obs_dict: Dict[str, Dict[str, np.ndarray]],
+    ):
+        res = {}
+        for agent, o_dict in obs_dict.items():
+            tmp = []
+            for o in o_dict.values():
+                tmp.append(o.flatten())
+            res[agent] = np.concatenate(tmp)
+        return res
+    
+
+    def get_compact_state(self, agent: str, o_dict: Dict[str, np.ndarray]):
+        ego_state = o_dict[EGO_STATE]
+
+        if hasattr(self, "vehicles_including_just_terminated"):
+            vehicles = self.vehicles_including_just_terminated
+        else:
+            vehicles = self.vehicles  # Fallback to old version MetaDrive, but this is not accurate!
+        vehicle: BaseVehicle = vehicles[agent]
+
+        # x, y, v_x, v_y
+        if vehicle: # could be none
+            pos = vehicle.position # metadrive.utils.math_utils.Vector
+            pos = np.array(pos)/WINDOW_SIZE
+
+            velocity = vehicle.velocity / vehicle.max_speed # numpy.ndarray
+            for i in range(len(velocity)):
+                velocity[i] = clip(velocity[i], 0.0, 1.0)             
+
+            heading = np.array([((vehicle.heading_theta / pi * 180 + 90) / 180)])
+
+            self._last_info[agent]['pos'] = pos
+            self._last_info[agent]['velocity_array'] = velocity
+            self._last_info[agent]['heading'] = heading
+
+            # (vehicle.speed_km_h / vehicle.max_speed_km_h)
+        else:
+            pos = self._last_info[agent].get('pos', np.array((0., 0.)))
+            velocity = self._last_info[agent].get('velocity_array', np.array((0., 0.)))
+            heading = self._last_info[agent].get('heading', np.array((0.)))
+        
+        # speed, yaw_rate, steering
+        speed = np.zeros((1)) + ego_state[3]
+        steering = np.zeros((1)) + ego_state[4]
+        yaw_rate = np.zeros((1)) + ego_state[7]
+
+        return np.concatenate((pos, velocity, heading, speed, steering, yaw_rate))
+
+
+    def _add_compact_state(
+        self, 
+        obs_dict: Dict[str, Dict[str, np.ndarray]],
+    ):
+        for agent, o_dict in obs_dict.items():
+            o_dict['compact_ego_state'] = self.get_compact_state(agent, o_dict)
+
+            compact_nei_states = np.zeros((self.num_neighbours, COMPACT_STATE_DIM))
+            neighbours = self._last_info[agent].get('neighbours', [])
+
+            for i, nei in zip(range(self.num_neighbours), neighbours):
+                compact_nei_states[i] = self.get_compact_state(nei, obs_dict[nei])
+            
+            o_dict['compact_nei_state'] = compact_nei_states
+            
+    def _add_nei_state(
+        self,
+        obs_dict: Dict[str, Dict[str, np.ndarray]],
+    ):
+        for agent, o_dict in obs_dict.items():
+            nei_states = np.zeros((self.num_neighbours, STATE_DIM))
+            neighbours = self._last_info[agent].get('neighbours', [])
+
+            for i, nei in zip(range(self.num_neighbours), neighbours):
+                nei_states[i] = obs_dict[nei][EGO_STATE]
+            o_dict['nei_state'] = nei_states
+
+
+    def process_obs(
+        self, 
+        old_obs: Dict[str, np.ndarray],
+    ) -> Union[Dict[str, np.ndarray], np.ndarray]:
+        ''' 根据自身的配置，处理原始观测，并加入必要的信息'''
+        # 1. transform original obs to dict
+        obs_dict = {}
+        for agent, o in old_obs.items():
+            obs_dict[agent] = self.obs_to_dict(o, self.old_obs_shape)
+
+        # 2. add additional obs if needed
+        if self.config['add_compact_state']:
+            self._add_compact_state(obs_dict)
+        if self.config['add_nei_state']:
+            self._add_nei_state(obs_dict)
+
+        # 3. return Dict or Box obs according to config
+        # 3.1 dict obs
+        if self.config['use_dict_obs']:
+            return obs_dict
+        # 3.2 flatten obs
+        else:
+            return self.flatten_obs_dict(obs_dict)
+
+
+    def process_infos(self, agents, infos):
+        self._update_distance_map()
+        self._add_neighbour_info(agents, infos)
+        self._last_info.update(infos)
+
+
+    def proccess_infos_obs(self, infos, old_obs):
+        ''' called every time original env returns obs
+        Args:
+            i: all agents' infos that will be added nei-infos
+            obs: all agents' obs that will be proccessed to new_obs
+        '''
+        agents = old_obs.keys()
+
+        # add neighbour infos
+        self.process_infos(agents, infos)
+
+        # add obs and/or change type to dict
+        new_obs = self.process_obs(old_obs)
+        old_obs = old_obs if self.return_original_obs else new_obs
+        return old_obs
+
+
     def reset(
         self, 
         *,
         force_seed: Optional[int] = None,
         options: Optional[dict] = None
     ):
-        o = super(CCEnv, self).reset(force_seed=force_seed)
+        obs = super(CCEnv, self).reset(force_seed=force_seed)
 
-        # add neighbour infos
-        i = defaultdict(dict)
-        self._update_distance_map()
-        self._add_neighbour_info(o.keys(), i)
-
-        if self.config['neighbour_states']:
-            o = self._add_neighbour_state(self._insert_pos_in_obs(o, i), i)
-        self._last_info.update(i)
-        return o, i
+        infos = defaultdict(dict)
+        obs = self.proccess_infos_obs(infos, obs)
+        
+        return obs, infos
 
 
     def step(self, actions):
+        obs, r, d, i = super(CCEnv, self).step(actions)
+        obs = self.proccess_infos_obs(i, obs)
+        return obs, r, d, i
 
-        if self.config["communication"][COMM_METHOD] != "none":
-            comm_actions = {k: v[2:] for k, v in actions.items()}
-            actions = {k: v[:2] for k, v in actions.items()}
-
-        o, r, d, i = super(CCEnv, self).step(actions)
-
-        self._update_distance_map(dones=d)
-
-        self._add_neighbour_info(o.keys(), i)
-        # for kkk, info in i.items():
-        #     info["agent_id"] = kkk
-        #     info["all_agents"] = list(i.keys())
-
-        #     neighbours, nei_distances = self._find_in_range(kkk, self.config["neighbours_distance"])
-        #     info["neighbours"] = neighbours
-        #     info["neighbours_distance"] = nei_distances
-
-        #     nei_rewards = [r[nei_name] for nei_name in neighbours]
-        #     info['nei_rewards'] = nei_rewards
-        #     if nei_rewards:
-        #         info["nei_average_rewards"] = np.mean(nei_rewards)
-        #     else:
-        #         info["nei_average_rewards"] = 0.0
-        #     # i[agent_name]["global_rewards"] = global_reward
-
-
-        if self.config['neighbour_states']:
-            o = self._add_neighbour_state(self._insert_pos_in_obs(o, i), i)
-
-        self._last_info.update(i)
-        
-        return o, r, d, i
 
     def _find_in_range(self, v_id, distance):
         if distance <= 0:
@@ -301,6 +414,7 @@ class CCEnv:
             if dist_to_others[dist_to_others_list[i]] < max_distance
         ]
         return ret, ret2
+
 
     def _update_distance_map(self, dones=None):
         self.distance_map.clear()
@@ -630,8 +744,8 @@ def get_rllib_compatible_gymnasium_api_env(env_class, return_class=False):
         _agent_ids = ["agent{}".format(i) for i in range(100)] + ["{}".format(i) for i in range(10000)] + ["sdc"]
 
         def __init__(self, config: dict, render_mode: Optional[str] = None):
-            env_class.__init__(self, config)
-            MultiAgentEnv.__init__(self)
+            super().__init__(config)
+            super(MultiAgentEnv, self).__init__()
             self.render_mode = render_mode
             self.metadata = getattr(self, "metadata", {"render_modes": []})
             self.reward_range = getattr(self, "reward_range", None)
@@ -701,7 +815,9 @@ def get_rllib_cc_env(env_class, return_class=False):
     return get_rllib_compatible_gymnasium_api_env(get_ccenv(env_class), return_class=return_class)
 
 
-def interpre_obs(obs):
+# TODO: refactor
+def interpre_obs(obs, color: str = None):
+    
     EGO_STATE_NAMES = [
         'd_left_yellow',
         'd_right_side_walk',
@@ -744,26 +860,37 @@ def interpre_obs(obs):
     return res
 
 
+def sns_rgb_to_rich_hex_str(color: tuple):
+    palette = sns.color_palette('colorblind')
+    assert color in palette
+    i = palette.index(color)
+    hex_color = palette.as_hex()[i]
+    return hex_color
+
 if __name__ == "__main__":
     from marlpo.utils.debug import print, printPanel
+    from metadrive.component.vehicle.base_vehicle import BaseVehicle
     from metadrive.envs.marl_envs import MultiAgentRoundaboutEnv, MultiAgentIntersectionEnv
     from metadrive.policy.idm_policy import ManualControllableIDMPolicy
+    import seaborn as sns
+    import math
 
     config = dict(
         use_render=False,
-        num_agents=30,
+        num_agents=2,
         manual_control=False,
         # crash_done=True,
         agent_policy=ManualControllableIDMPolicy,
         return_single_space=True,
         vehicle_config=dict(
-            lidar=dict(num_lasers=0, distance=40, num_others=0),
+            lidar=dict(num_lasers=72, distance=40, num_others=0),
         ),
         # == neighbour config ==
-        neighbour_states=True,
-        nei_navi=False,
-        num_neighbours=4,
-        neighbours_distance=20,
+        use_dict_obs=False,
+        add_compact_state=True, # add BOTH ego- & nei- compact-state simultaneously
+        add_nei_state=False,
+        num_neighbours=1,
+        # neighbours_distance=40,
     )
 
     RANDOM_ACTION = False
@@ -785,13 +912,15 @@ if __name__ == "__main__":
         env.current_track_vehicle.expert_takeover = True 
 
     print(env.observation_space)
-    exit()
+    print(type(env.observation_space))
+
 
     # print(o['agent0'])
     # print(i['agent0'])
     # print(o['agent1'])
     # print(i['agent1'])
 
+    # exit()
     # env.render(mode="top_down", file_size=(800,800))
 
     '''lcf env'''
@@ -799,7 +928,9 @@ if __name__ == "__main__":
 
 
     # print(dir(env))
-    for i in range(20000):
+    min_heading = 0
+    max_heading = 0
+    for i in range(2000):
 
         if RANDOM_ACTION:
             actions = {}
@@ -807,29 +938,33 @@ if __name__ == "__main__":
                 actions[v] = env.action_space.sample()
             o, r, tm, tc, info = env.step(actions)
         else:
-            o, r, tm, tc, info = env.step({agent_id: [0, 0] for agent_id in env.vehicles.keys()})
-        env.render(mode="top_down", file_size=(800,800))
-        # input() 
-        for k in o:
-            named_obs = interpre_obs(o[k])
-            _info = info[k]
-            break
-        msg = {}
-        msg['OBS'] = named_obs
-        msg['-'] = '-'
-        msg['INFO'] = _info
-        # printPanel(msg, title='OBS')
-        # input()
-        # for agent, obs in o.items():
-            # print(obs)
-            # print(info[agent])
-            # print('-'*10)
-        # input() 
-        # print('='*20)
+            obs, rew, tm, tc, infos = env.step({agent_id: [0, 0] for agent_id in env.vehicles.keys()})
 
-        # for a in info:
-        #     if info[a].get('arrive_dest', False):
-        #         print(o[a]) 
+        env.render(mode="top_down", file_size=(800,800))
+        for agent, o in obs.items():
+            msg = {}
+            if isinstance(o, dict):
+                msg[COMPACT_EGO_STATE] = o[COMPACT_EGO_STATE]
+                msg[EGO_STATE] = o[EGO_STATE]
+                msg['*'] = '*'
+                
+            # named_obs = interpre_obs(o[k])
+            info = infos[agent]
+            vehicle: BaseVehicle = env.vehicles_including_just_terminated[agent]
+            if vehicle:
+                v = vehicle.velocity
+                color = vehicle.panda_color
+                info['agent_id'] = colorize(info['agent_id'], sns_rgb_to_rich_hex_str(color))
+                # msg['OBS'] = named_obs
+                # msg['-'] = '-'
+                msg['INFO'] = info
+                msg['--'] = '-'
+                heading = int(vehicle.heading_theta / math.pi * 180)
+                msg['heading'] = heading
+                printPanel(msg, title='OBS')
+                min_heading = min(min_heading, heading)
+                max_heading = max(max_heading, heading)
+        # input() 
 
         if tm['__all__']:
             # print(f'terminated at total {i} steps')
@@ -837,5 +972,7 @@ if __name__ == "__main__":
             print('env.episode_step:', env.episode_step)
             env.reset()
             # break
+        
+    print(max_heading, min_heading)
 
     env.close()

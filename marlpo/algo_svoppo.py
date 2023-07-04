@@ -26,8 +26,36 @@ class SVOPPOConfig(PPOConfig):
         # IPPO params
         self.vf_clip_param = 100
         self.old_value_loss = True
+
+
+        # Central Critic
+        self.use_central_critic = False
+        self.counterfactual = True
+        self.fuse_mode = "mf"  # In ["concat", "mf", "none"]
+        self.mf_nei_distance = 10
+
+        # Attention Encoder
+        self.use_attention = True
+        
+        self.num_neighbours = 4
+
         # Custom Model configs
         self.update_from_dict({"model": {"custom_model": "svo_model"}})
+    
+    def validate(self):
+        super().validate()
+        assert self["fuse_mode"] in ["mf", "concat", "none"]
+
+        # Central Critic
+        self.model["custom_model_config"]["use_central_critic"] = self["use_central_critic"]
+        self.model["custom_model_config"]["fuse_mode"] = self["fuse_mode"]
+        self.model["custom_model_config"]["counterfactual"] = self["counterfactual"]
+
+        # Attention Encoder
+        self.model["custom_model_config"]["use_attention"] = self["use_attention"]
+
+        self.model["custom_model_config"]["num_neighbours"] = self["num_neighbours"]
+
 
 
 class SVOPPOPolicy(PPOTorchPolicy):

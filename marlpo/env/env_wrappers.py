@@ -293,7 +293,7 @@ class CCEnv:
         else:
             pos = self._last_info[agent].get('pos', np.array((0., 0.)))
             velocity = self._last_info[agent].get('velocity_array', np.array((0., 0.)))
-            heading = self._last_info[agent].get('heading', np.array((0.)))
+            heading = self._last_info[agent].get('heading', np.array([0.]))
         
         # speed, yaw_rate, steering
         speed = np.zeros((1)) + ego_state[3]

@@ -12,21 +12,24 @@ from ray.rllib.utils.torch_utils import (
     warn_if_infinite_kl_divergence,
 )
 
-from marlpo.models.svo_model import SVOModel
+from marlpo.models.sa_model import SAModel
+from marlpo.utils import inspect, printPanel
 
 torch, nn = try_import_torch()
 
-ModelCatalog.register_custom_model("svo_model", SVOModel)
+ModelCatalog.register_custom_model("sa_model", SAModel)
 
 
-class SVOPPOConfig(PPOConfig):
+class SAPPOConfig(PPOConfig):
     def __init__(self, algo_class=None):
         """Initializes a PPOConfig instance."""
-        super().__init__(algo_class=algo_class or SVOPPOTrainer)
+        super().__init__(algo_class=algo_class or SAPPOTrainer)
         # IPPO params
         self.vf_clip_param = 100
         self.old_value_loss = True
 
+        # common
+        self.num_neighbours = 4
 
         # Central Critic
         self.use_central_critic = False
@@ -37,14 +40,16 @@ class SVOPPOConfig(PPOConfig):
         # Attention Encoder
         self.use_attention = True
         
-        self.num_neighbours = 4
-
         # Custom Model configs
-        self.update_from_dict({"model": {"custom_model": "svo_model"}})
-    
+        self.update_from_dict({"model": {"custom_model": "sa_model"}})
+
+
     def validate(self):
         super().validate()
         assert self["fuse_mode"] in ["mf", "concat", "none"]
+
+        # common
+        self.model["custom_model_config"]["num_neighbours"] = self["num_neighbours"]
 
         # Central Critic
         self.model["custom_model_config"]["use_central_critic"] = self["use_central_critic"]
@@ -54,11 +59,21 @@ class SVOPPOConfig(PPOConfig):
         # Attention Encoder
         self.model["custom_model_config"]["use_attention"] = self["use_attention"]
 
-        self.model["custom_model_config"]["num_neighbours"] = self["num_neighbours"]
+        # get obs_shape for every env_config for attention encoder
+        self.model["custom_model_config"]["env_config"] = self.env_config
 
 
+        # from ray.tune.registry import get_trainable_cls
+        # env_cls = get_trainable_cls(self.env)
+        # printPanel({'env_cls': env_cls}, color='red')
+        obs_shape = self.model["custom_model_config"]['env_cls'].get_obs_shape(self.env_config)
+        msg = {}
+        msg['obs_shape'] = obs_shape
+        msg['custom_model_config'] = self.model["custom_model_config"]
+        # printPanel(msg, title='SAPPOConfig validate', color='green')
 
-class SVOPPOPolicy(PPOTorchPolicy):
+
+class SAPPOPolicy(PPOTorchPolicy):
     def loss(self, model, dist_class, train_batch):
         """
         Compute loss for Proximal Policy Objective.
@@ -156,12 +171,12 @@ class SVOPPOPolicy(PPOTorchPolicy):
         return total_loss
 
 
-class SVOPPOTrainer(PPO):
+class SAPPOTrainer(PPO):
     @classmethod
     def get_default_config(cls):
-        return SVOPPOConfig()
+        return SAPPOConfig()
 
     def get_default_policy_class(self, config):
         assert config["framework"] == "torch"
-        return SVOPPOPolicy
+        return SAPPOPolicy
 

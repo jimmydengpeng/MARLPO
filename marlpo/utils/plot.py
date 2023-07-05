@@ -86,8 +86,8 @@ def get_param_patthern(param_space: Dict[str, List[str]], verbose=False) -> Dict
     all_label_product = list(itertools.product(*all_label_list)) # list of tuple, a tuple is a product
    
     for l, p in zip(all_label_product, all_param_product):
+        l = [x for x in list(l) if x != '']
         key = ' & '.join(l)
-        # key = l
         pattern = r'(.*?)'.join(p)
         res[key] = pattern
 
@@ -140,7 +140,15 @@ def read_csv_in_dir(exp_dir, param_pattern, columns: list, verbose=False):
     return csv_list
 
 
-def plot_mean_std(data, x: str, col: List[str], title=None, lable=None):
+def plot_mean_std(
+    data, 
+    x: str, 
+    col: List[str], 
+    title=None, 
+    lable=None,
+    xlabel=True,
+    ylabel=True,
+):
     ''' 输入一个data 包含以同一组数据为x轴的多个种子的多列数据 
         按相同x值聚集某列的不同种子的数据
         并绘制均值、标准差
@@ -153,13 +161,15 @@ def plot_mean_std(data, x: str, col: List[str], title=None, lable=None):
             # 绘制均值和标准差曲线
             label = lable if lable else c
             plt.plot(mean_values.index, mean_values.values, label=lable)
-            plt.fill_between(mean_values.index, mean_values - std_values, mean_values + std_values, alpha=0.25)
+            plt.fill_between(mean_values.index, mean_values - std_values, mean_values + std_values, alpha=0.2)
 
             # 设置图例和标签
             plt.title(title)
             plt.legend(title='', loc='best')
-            plt.xlabel('Environmental Step')
-            plt.ylabel('rate')
+            if xlabel:
+                plt.xlabel('Environmental Step')
+            if ylabel:
+                plt.ylabel('rate')
 
 
 def plot_one_exp(
@@ -168,6 +178,8 @@ def plot_one_exp(
         col=succ_col, 
         title=None, 
         exp_label=None, 
+        xlabel=True,
+        ylabel=True,
         verbose=False
     ):
     ''' 简单从一个exp目录根据pattern筛选所有trial
@@ -178,7 +190,7 @@ def plot_one_exp(
         param_pattern = r'start_seed=(\d*)'
     df_list = read_csv_in_dir(exp_dir, param_pattern, col, verbose=verbose)
     data = pd.concat(df_list)
-    plot_mean_std(data, x, col, title=title, lable=exp_label)
+    plot_mean_std(data, x, col, title=title, lable=exp_label, xlabel=xlabel, ylabel=ylabel)
 
 
 def compare_all_metrics(exp_dirs: Dict[str, Union[str, Tuple[str, str]]]):
@@ -223,19 +235,22 @@ def plot_all_metrics_for_params_in_one_exp_dir(
                 } x N
             }
     '''
-    fig = plt.figure(figsize=(11, 8))
-    fig.subplots_adjust(top=0.95, hspace=0.35, wspace=0.2)
+    fig = plt.figure(figsize=(12, 8))
+    fig.subplots_adjust(top=0.92, hspace=0.25, wspace=0.2)
     i = 1
     for metric, col in all_metrics.items():
         plt.subplot(2, 2, i)
+        xlabel = i >= 3
+
         for label, pattern in param_pattern_dict.items():
-            plot_one_exp(exp_dir=exp_dir, param_pattern=pattern, col=col, title=metric, exp_label=algo_name+' '+label)
+            plot_one_exp(exp_dir=exp_dir, param_pattern=pattern, col=col, title=metric, exp_label=algo_name+' '+label, xlabel=xlabel, ylabel=False)
+
         if additional_plot_args:
             for exp_name, args in additional_plot_args.items():
                 a_exp_dir = args['exp_dir']
                 a_pattern = args.get('pattern', None)
                 a_label = args.get('label', '')
-                plot_one_exp(exp_dir=a_exp_dir, param_pattern=a_pattern, col=col, title=metric, exp_label=exp_name+' '+a_label)
+                plot_one_exp(exp_dir=a_exp_dir, param_pattern=a_pattern, col=col, title=metric, exp_label=exp_name+' '+a_label, xlabel=xlabel, ylabel=False)
 
         i += 1
 
@@ -250,19 +265,19 @@ if __name__ == "__main__":
     exp_dir = 'exp_results/IPPO_Inter_8-30agents_(compact-state)'
     param_space = {
         # 'agents': [['30a-add-1-nei-state-navi'], ['30']],
-        'agents': [['8a', '30a'], ['8', '30']],
+        'agents': [['',], ['8',]],
         'num_neighbours': [['1-nei', '4-nei'], ['1', '4']],
     }
     param_pattern_dict = get_param_patthern(param_space, verbose=True) # {lable -> re pattern}
 
-    exp_dir_30a = 'exp_results/IPPO_Intersection_8seeds_30agents_repeat2'
-    add_plot_args = dict(
-        IPPO=dict(
-            exp_dir=exp_dir_30a,
-            pattern=None, 
-            label='30a', 
-    ))
+    # exp_dir_30a = 'exp_results/IPPO_Intersection_8seeds_30agents_repeat2'
+    # add_plot_args = dict(
+    #     IPPO=dict(
+    #         exp_dir=exp_dir_30a,
+    #         pattern=None, 
+    #         label='30a', 
+    # ))
 
-    plot_all_metrics_for_params_in_one_exp_dir(exp_dir, 'IPPO', param_pattern_dict, 'Compact Ego- and Nei- states with Lidar', add_plot_args)
+    # plot_all_metrics_for_params_in_one_exp_dir(exp_dir, 'IPPO', param_pattern_dict, 'Compact Ego- and Nei- states with Lidar', add_plot_args)
 
-    plt.show()
+    # plt.show()

@@ -111,7 +111,7 @@ if __name__ == "__main__":
 
 
     # === Launch training ===
-    from marlpo.algo_ippo import IPPOTrainer
+    from marlpo.algo.algo_ippo import IPPOTrainer
     train(
         ARIPPOTrainer,
         # IPPOTrainer,

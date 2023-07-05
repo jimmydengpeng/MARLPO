@@ -6,8 +6,8 @@ import torch.nn.functional as F
 
 from ray.rllib.utils.typing import Dict, TensorType, List, Tuple, ModelConfigDict
 
-from modules.attention import MultiHeadSelfAttention
-from marlpo.utils.debug import inspect, printPanel
+from .attention import MultiHeadSelfAttention
+from ..utils import inspect, printPanel
 
 # NEIGHBOUR_ACTIONS = "neighbour_actions"
 
@@ -18,10 +18,8 @@ from marlpo.utils.debug import inspect, printPanel
 # }
 
 AGENT_WISE_OBS_SHAPE = {
-    'ego_state': (21, ),
-    # 'ego_navi': (2, 5),
-    'nei_state': (4, 21), # num_neighbours * dim
-    # 'nei_navi': (2, 5),
+    'ego_state': (9, ),
+    'ego_navi': (2, 5),
     'lidar': (72, ),
 }
 
@@ -33,6 +31,16 @@ OBS_TO_EMBEDDINGS = {
     'ego_state': 'state_embedding',
     'nei_state': 'state_embedding',
 }
+
+# === KEYS ===
+EGO_STATE = 'ego_state'
+EGO_NAVI = 'ego_navi'
+LIDAR = 'lidar'
+COMPACT_EGO_STATE = 'compact_ego_state'
+COMPACT_NEI_STATE = 'compact_nei_state'
+NEI_STATE = 'nei_state'
+
+
 
 def get_layer(input_dim, output_dim, num_layers=1, layer_norm=False):
     layers = []
@@ -49,7 +57,7 @@ def get_layer(input_dim, output_dim, num_layers=1, layer_norm=False):
     return nn.Sequential(nn.LayerNorm(input_dim), *layers)
 
 
-class AgentwiseObsEncoder(nn.Module):
+class SAEncoder(nn.Module):
 
     def __init__(
             self, 
@@ -64,11 +72,16 @@ class AgentwiseObsEncoder(nn.Module):
         self.obs_dim = obs_dim
         self.hidden_dim = hidden_dim
 
+
         # == 1. Set embeddings ==
-        self.obs_shapes = custom_model_config.get('obs_shapes', AGENT_WISE_OBS_SHAPE)
+        self.obs_shape = custom_model_config.get('obs_shape', AGENT_WISE_OBS_SHAPE)
         self.num_neighbours = custom_model_config['num_neighbours']
         self.validate()
         self.set_emdedding_layers(hidden_dim)
+
+        # printPanel(self.obs_shape, color='red', title='SAEncoder init')
+        printPanel(custom_model_config, title='SAEncoder init')
+
 
         # self.act_embedding = get_layer(act_dim, hidden_dim)
 
@@ -91,16 +104,19 @@ class AgentwiseObsEncoder(nn.Module):
         # policy head should have a smaller scale
         nn.init.orthogonal_(self.policy_head.weight.data, gain=0.01)
     
+
     def validate(self):
         all_dim = 0
-        for name, shape in self.obs_shapes.items():
+        for name, shape in self.obs_shape.items():
             all_dim += np.product(shape)
         assert self.obs_dim == all_dim
-        self.obs_shapes['nei_state'][0] == self.num_neighbours
+        if NEI_STATE in self.obs_shape:
+            self.obs_shape[NEI_STATE][0] == self.num_neighbours
+
 
     def set_emdedding_layers(self, hidden_dim):
         _obs_dim_check = 0
-        for k, shape in self.obs_shapes.items():
+        for k, shape in self.obs_shape.items():
             if 'mask' not in k:
                 _obs_dim_check += np.product(shape)
                 # setattr(self, k + '_embedding',
@@ -114,7 +130,7 @@ class AgentwiseObsEncoder(nn.Module):
 
     def compute_obs_seq_len(self):
         res = 0
-        for k, shape in self.obs_shapes.items():
+        for k, shape in self.obs_shape.items():
             res += len(shape)
         return res
             
@@ -135,17 +151,17 @@ class AgentwiseObsEncoder(nn.Module):
         assert obs.shape[-1] == self.obs_dim 
         
         # 1. slicing the obs
-        lidar_dim = self.obs_shapes['lidar']
+        lidar_dim = self.obs_shape['lidar']
         ego_nei_dim = self.obs_dim - lidar_dim
         t_ego_nei = obs[:][:ego_nei_dim]
         t_lidar = obs[:][ego_nei_dim:]
         _pre_idx = 0
         for state in OBS_TO_EMBEDDINGS:
-            idx = self.obs_shapes[state]
-            obs[:][] 
+            idx = self.obs_shape[state]
+            # obs[:][] 
 
         _pre_idx = 0
-        for k, shape in self.obs_shapes.items():
+        for k, shape in self.obs_shape.items():
             if 'lidar' not in k:
                 _cur_idx = _pre_idx + np.product(shape)
                 obs_dict[k] = obs[:, _pre_idx:_cur_idx].reshape(-1, *shape)
@@ -168,7 +184,7 @@ class AgentwiseObsEncoder(nn.Module):
 
         obs_dict = {} # add keys: obs_ego, obs_navi, obs_lidar
         _pre_idx = 0
-        for k, shape in self.obs_shapes.items():
+        for k, shape in self.obs_shape.items():
             if 'mask' not in k:
                 _cur_idx = _pre_idx + np.product(shape)
                 obs_dict[k] = obs[:, _pre_idx:_cur_idx].reshape(-1, *shape)

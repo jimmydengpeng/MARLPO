@@ -259,7 +259,14 @@ def colorize(s: str, color: str):
     return '[bold][' + color + ']' + s + '[/]'
 
 
-def printPanel(msg, title=None, raw_output=False, align=True, **kwargs):
+def printPanel(
+    msg, 
+    title=None, 
+    raw_output=False, 
+    align=True, 
+    color: str=None, 
+    **kwargs
+):
     if isinstance(msg, str):
         pass
     elif isinstance(msg, int):
@@ -269,6 +276,9 @@ def printPanel(msg, title=None, raw_output=False, align=True, **kwargs):
         msg = dict_to_str(new_dict, raw_tensor=raw_output, align=align)
     else:
         print(f'[Warning] utils.py:printPanel -- msg with type {type(msg)}')
+
+    if color:
+        msg = f'[{color}]' + msg + '[/]'
 
     print(Panel.fit(msg, title=title, **kwargs))
 
@@ -291,10 +301,10 @@ if __name__ == '__main__':
     }
 
     data = {
-        'name': 'John',
+        '[red]name': 'John[/]',
         'age': 30,
         '*': '*',
-        'data_0': 'DATA0',
+        '[green]data_0': 'DATA0[/]',
         'data_1': d0,
         'data_2': {
             'd': 'DDD',
@@ -307,22 +317,8 @@ if __name__ == '__main__':
     # print(dict_to_str(d2))
     # print(dict_to_str(d2, use_json=True))
 
-    printPanel(data, title='title',align=True, raw_output=False)
-    # s = new(data)
-    # print(s)
+    printPanel(data, title='title',align=True, raw_output=False, color='purple')
 
-    def get_max_kv_len(d: Dict[str, ValueWrapper]):
-        max_len = 0
-        for k, v in d.items():
-            if isinstance(v, dict):
-                sub_len = get_max_kv_len(v) + 2
-                max_len = max(max_len, sub_len)
-            else:
-                max_len = max(max_len, len(k) + 2 + len(v))
-        return max_len
-    
-    d = process_value(data)
-    print(get_max_kv_len(d))
 
 
 '''

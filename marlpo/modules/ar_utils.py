@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 from ray.rllib.utils.typing import Dict, TensorType, List, Tuple, ModelConfigDict
 
-from modules.attention import MultiHeadSelfAttention
+from marlpo.modules.attention import MultiHeadSelfAttention
 from marlpo.utils.debug import inspect, printPanel
 
 NEIGHBOUR_ACTIONS = "neighbour_actions"

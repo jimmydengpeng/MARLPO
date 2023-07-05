@@ -40,7 +40,7 @@ from ray.rllib.utils.torch_utils import (
 )
 from ray.rllib.utils.typing import ModelConfigDict, TensorType, TrainerConfigDict
 
-from marlpo.algo_ippo import IPPOTrainer, IPPOConfig
+from marlpo.algo.algo_ippo import IPPOTrainer, IPPOConfig
 from marlpo.connectors import ModEnvInfoAgentConnector
 from marlpo.models.ar_model import ARModel
 from marlpo.utils.debug import print, printPanel

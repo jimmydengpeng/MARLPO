@@ -12,8 +12,8 @@ from ray.rllib.utils.annotations import override
 from ray.rllib.utils.framework import try_import_torch
 from ray.rllib.utils.typing import Dict, TensorType, List, Tuple, ModelConfigDict
 
-from marlpo.modules import ARAgentwiseObsEncoder
-from marlpo.utils.debug import inspect, printPanel
+from marlpo.modules import SAEncoder
+from marlpo.utils import inspect, printPanel
 
 torch, nn = try_import_torch()
 
@@ -27,7 +27,7 @@ NEIGHBOUR_ACTIONS = "neighbour_actions"
 EXECUTION_MASK = 'execution_mask'
 
 
-class SVOModel(TorchModelV2, nn.Module):
+class SAModel(TorchModelV2, nn.Module):
 
     def __init__(
         self,
@@ -54,9 +54,15 @@ class SVOModel(TorchModelV2, nn.Module):
         if self.use_attention:
             self.actor = self._get_attention_actor(model_config, num_outputs)
         else:
+            printPanel({'self.obs_space': self.obs_space})
             self.actor = self._get_fcn_actor(model_config, num_outputs)
 
-        self.critic = self._get_critic(model_config, centralized_critic=self.use_centralized_critic)
+        self._init_critic(model_config)
+
+        # Holds the current "base" output (before logits layer).
+        self._features = None
+        # Holds the last input, in case value branch is separate.
+        self._last_flat_in = None
 
         # TODO === Fix WARNING catalog.py:617 -- Custom ModelV2 should accept all custom options as **kwargs, instead of expecting them in config['custom_model_config']! === 
 
@@ -88,8 +94,7 @@ class SVOModel(TorchModelV2, nn.Module):
         layers = []
         self._logits = None
 
-        # obs.size加入动作size
-        prev_layer_size = int(np.product(self.obs_space.shape)) + self.num_neighbours*self.action_space.shape[0]
+        prev_layer_size = int(np.product(self.obs_space.shape)) 
 
         # Create layers 0 to second-last.
         for size in hiddens[:-1]:
@@ -148,31 +153,38 @@ class SVOModel(TorchModelV2, nn.Module):
 
 
     def _get_attention_actor(self, model_config, num_outputs):
+        msg = {}
+        msg['self.custom_model_config'] = self.custom_model_config
+        msg['self.obs_space'] = self.obs_space
+
+        # == get obs_shape for every env_config == 
+        self.obs_shape = self.custom_model_config['env_cls'].get_obs_shape(self.custom_model_config['env_config'])
+        self.custom_model_config['obs_shape'] = self.obs_shape
+
+        msg['obs_shape'] = self.obs_shape
+        printPanel(msg, title='_get_attention_actor', color='red')
+
         obs_dim = int(np.product(self.obs_space.shape))
         act_dim = self.action_space.shape[0]
         hidden_dim = self.custom_model_config.get('attention_dim', 64)
-        encoder = ARAgentwiseObsEncoder(obs_dim, act_dim, num_outputs, hidden_dim, self.custom_model_config)
+        encoder = SAEncoder(obs_dim, act_dim, num_outputs, hidden_dim, self.custom_model_config)
         return encoder
 
 
-    def _get_critic(self, model_config, centralized_critic=False):
-        # NOTE: could be central critic or vanilla critic
+    def _init_critic(self, model_config):
+        '''init _value_branch_separate & _value_branch
+            obs -> (_value_branch_separate) --> (_value_branch)
+        '''
         hiddens = list(model_config.get("fcnet_hiddens", [])) + list(model_config.get("post_fcnet_hiddens", [])) # [256, 256]
         activation = model_config.get("fcnet_activation")
         self.vf_share_layers = model_config.get("vf_share_layers") # False by default
-
-        # === CC Modification: We compute the centralized critic obs size here! ===
-        custom_model_config = model_config.get('custom_model_config', {})
-        self.fuse_mode = custom_model_config.get("fuse_mode", None)
-        self.counterfactual = custom_model_config.get("counterfactual", False)
-        # === CCModel get custom_model_config Ends ===
 
         self._value_branch_separate = None
         if not self.vf_share_layers:
             # Build a parallel set of hidden layers for the value net.
 
-            # === Our Modification ===
-            # NOTE: We use centralized critic obs size as the input size of critic!
+            # === Modification ===
+            # NOTE: could be central critic or vanilla critic
             # prev_vf_layer_size = int(np.product(obs_space.shape))
             prev_vf_layer_size = self.critic_obs_dim
             assert prev_vf_layer_size > 0
@@ -201,16 +213,11 @@ class SVOModel(TorchModelV2, nn.Module):
         if not self.use_centralized_critic:
             return self.obs_space.shape[0]
         else:
-            return self.get_centralized_critic_obs_dim()
-
-    def get_centralized_critic_obs_dim(self):
-        ''' return critic dim according if use cc '''
-        return get_centralized_critic_obs_dim(
-            self.obs_space, self.action_space, self.model_config["custom_model_config"]["counterfactual"],
-            self.model_config["custom_model_config"]["num_neighbours"],
-            self.model_config["custom_model_config"]["fuse_mode"]
-        )
-
+            return get_centralized_critic_obs_dim(
+                self.obs_space, self.action_space, self.model_config["custom_model_config"]["counterfactual"],
+                self.model_config["custom_model_config"]["num_neighbours"],
+                self.model_config["custom_model_config"]["fuse_mode"]
+            )
 
 
     @override(TorchModelV2)
@@ -234,44 +241,82 @@ class SVOModel(TorchModelV2, nn.Module):
             [training]
                 Size(512:BatchSize, 91)
         '''
+        '''
+        args:
+            [ _initialize_loss_from_dummy_batch() ]
+            ╭─────────────────────── input_dict ───────────────────────╮
+            │  obs:                                                    │  
+            │                torch.Size([32, 131])                     │
+            │             or                                           │
+            │                compact_ego_state: torch.Size([32, 8])    │
+            │                compact_nei_state: torch.Size([32, 4, 8]) │
+            │                ego_navi:          torch.Size([32, 2, 5]) │
+            │                ego_state:         torch.Size([32, 9])    │
+            │                lidar:             torch.Size([32, 72])   │
+            │  new_obs:      ndarray.shape=(32, 131)                   │
+            │  actions:      ndarray.shape=(32, 2)                     │
+            │  prev_actions: ndarray.shape=(32, 2)                     │
+            │  rewards:      ndarray.shape=(32,)                       │
+            │  prev_rewards: ndarray.shape=(32,)                       │
+            │  terminateds:  ndarray.shape=(32,)                       │
+            │  truncateds:   ndarray.shape=(32,)                       │
+            │  infos:        ndarray.shape=(32,)                       │
+            │  eps_id:       ndarray.shape=(32,)                       │
+            │  unroll_id:    ndarray.shape=(32,)                       │
+            │  agent_index:  ndarray.shape=(32,)                       │
+            │  t:            ndarray.shape=(32,)                       │
+            │  obs_flat:     torch.Size([32, 131])                     │
+            ╰──────────────────────────────────────────────────────────╯
+
+        '''
         msg = {}
         msg['input_dict'] = input_dict
         msg['use_attention'] = self.use_attention
-        # printPanel(msg, f'{self.__class__.__name__}.forward()')
+        msg['obs type'] = type(input_dict['obs']).__name__
 
-        assert NEIGHBOUR_ACTIONS in input_dict
-        obs = input_dict["obs_flat"].float() # shape(BatchSize, 91)
-        nei_actions = input_dict[NEIGHBOUR_ACTIONS] # shape(BatchSize, num_nei, act_dim)
-        execution_mask = input_dict[EXECUTION_MASK]
+        printPanel(msg, f'{self.__class__.__name__}.forward()')
 
         # attention actor
         if self.use_attention:
-            nei_actions = nei_actions.view(-1, self.num_neighbours, self.action_space.shape[0]) # (BS, num_nei, act_dim)
-            logits = self.actor(obs, nei_actions, execution_mask)
-
+            assert isinstance(obs, dict)
+            obs = input_dict["obs"].float() # Dict, str -> (BatchSize, *)
         # mlp actor
         else: 
-            # obs = obs.reshape(obs.shape[0], -1)
-            obs = obs.view(obs.shape[0], -1) # size(BatchSize, *)
+            obs = input_dict["obs_flat"] # (BatchSize, OBS_DIM)
 
-            # flat actions
-            nei_actions_flat = torch.flatten(nei_actions, start_dim=-2) # shape(1, num_nei x 2)
+        self._last_flat_in = input_dict["obs_flat"] # (BatchSize, OBS_DIM)
 
-            obs_cat = torch.cat((obs, nei_actions_flat), -1) # shape (1, 91 + action_dim*num_neighbours) == (1, 99)
-            logits = self.actor(obs_cat)
-            if self.free_log_std: # False by default
-                logits = self._append_free_log_std(logits)
+        logits = self.actor(obs)
+
+        if self.free_log_std: # False by default
+            logits = self._append_free_log_std(logits)
+        
+        self._features = logits
 
         return logits, state
 
 
-
     @override(TorchModelV2)
     def value_function(self) -> TensorType:
-        raise ValueError(
-            "Centralized Value Function should not be called directly! "
-            "Call central_value_function(cobs) instead!"
-        )
+        if not self.use_centralized_critic:
+            if self._value_branch_separate:
+                out = self._value_branch(
+                    self._value_branch_separate(self._last_flat_in)
+                ).squeeze(1)
+            else:
+                assert self._features is not None, "must call forward() first"
+                out = self._value_branch(self._features).squeeze(1)
+            return out
+        else:
+            raise NotImplementedError
+
+
+    # @override(TorchModelV2)
+    # def value_function(self) -> TensorType:
+    #     raise ValueError(
+    #         "Centralized Value Function should not be called directly! "
+    #         "Call central_value_function(cobs) instead!"
+    #     )
 
     # TODO
     def central_value_function(self, obs):

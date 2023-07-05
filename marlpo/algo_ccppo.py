@@ -3,7 +3,7 @@ import gymnasium as gym
 from gymnasium.spaces import Box
 import numpy as np
 
-from marlpo.algo_ippo import IPPOTrainer, IPPOConfig
+from marlpo.algo.algo_ippo import IPPOTrainer, IPPOConfig
 from marlpo.callbacks import MultiAgentDrivingCallbacks
 from marlpo.env.env_wrappers import get_ccenv, get_rllib_compatible_gymnasium_api_env
 from copo.torch_copo.utils.train import train

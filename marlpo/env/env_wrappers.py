@@ -17,7 +17,7 @@ from ray.rllib.utils.gym import convert_old_gym_space_to_gymnasium_space, check_
 from ray.tune.registry import register_env
 
 from marlpo.env.env_utils import metadrive_to_terminated_truncated_step_api
-from marlpo.utils.debug import colorize
+from marlpo.utils import colorize, printPanel
 
 
 
@@ -42,7 +42,11 @@ NEI_OBS = "nei_obs"
 
 # === KEYS ===
 EGO_STATE = 'ego_state'
+EGO_NAVI = 'ego_navi'
+LIDAR = 'lidar'
 COMPACT_EGO_STATE = 'compact_ego_state'
+COMPACT_NEI_STATE = 'compact_nei_state'
+NEI_STATE = 'nei_state'
 
 
 ''' obs:
@@ -79,6 +83,9 @@ COMPACT_STATE_DIM = 8 # x, y, vx, vy, heading, speed, steering, yaw_rate
 # can also be passed to custom model's config
 
 WINDOW_SIZE = 150
+NUM_NEIGHBOURS = 4
+
+
 
 class CCEnv:
     """
@@ -86,6 +93,7 @@ class CCEnv:
     neighbours' names and distances into info at each step.
     We should subclass this class to a base environment class.
     """
+    
     @classmethod
     def default_config(cls):
         config = super(CCEnv, cls).default_config()
@@ -99,7 +107,7 @@ class CCEnv:
                 # augment_ego_state=False,
                 add_nei_state=False, # if True, obs returned will contain neighbour's state
                 # nei_navi=False, # if True, will include nei's navi info
-                num_neighbours=4, # up-to how many neighbours can be observed
+                num_neighbours=NUM_NEIGHBOURS, # up-to how many neighbours can be observed
             )
         )
         return config
@@ -159,6 +167,24 @@ class CCEnv:
             total_dim += np.product(shape)
 
         return res, total_dim
+
+
+    @classmethod
+    def get_obs_shape(cls, env_config):
+        config = cls.default_config().update(env_config)
+        res = {
+            'ego_state': (STATE_DIM, ) ,
+            'ego_navi': (NUM_NAVI, NAVI_DIM),
+            'lidar': (config['vehicle_config']['lidar']['num_lasers'], )
+        }
+        if config.get('add_compact_state', False):
+            res['compact_ego_state'] = (COMPACT_STATE_DIM, )
+            res['compact_nei_state'] = (config.get('num_neighbours', NUM_NEIGHBOURS), COMPACT_STATE_DIM)
+
+        if config.get('add_nei_state', False):
+            res['nei_state'] = (config.get('num_neighbours', NUM_NEIGHBOURS), STATE_DIM)
+
+        return res
 
 
     def __init__(self, *args, **kwargs):
@@ -278,6 +304,8 @@ class CCEnv:
         if vehicle: # could be none
             pos = vehicle.position # metadrive.utils.math_utils.Vector
             pos = np.array(pos)/WINDOW_SIZE
+            if pos[0] > 1 or pos[1] > 1:
+                printPanel({'pos': pos})
 
             velocity = vehicle.velocity / vehicle.max_speed # numpy.ndarray
             for i in range(len(velocity)):
@@ -886,10 +914,10 @@ if __name__ == "__main__":
             lidar=dict(num_lasers=72, distance=40, num_others=0),
         ),
         # == neighbour config ==
-        use_dict_obs=False,
+        use_dict_obs=True,
         add_compact_state=True, # add BOTH ego- & nei- compact-state simultaneously
         add_nei_state=False,
-        num_neighbours=1,
+        num_neighbours=4,
         # neighbours_distance=40,
     )
 
@@ -903,6 +931,11 @@ if __name__ == "__main__":
     # env_name, env_cls = get_ccppo_env(MultiAgentRoundaboutEnv, return_class=True)
     env_name, env_cls = get_rllib_cc_env(MultiAgentIntersectionEnv, return_class=True)
     # print(env_name)
+
+    env_cls.get_obs_shape(config)
+
+    exit()
+
     env = env_cls(config)
     o, i = env.reset()
 
@@ -961,7 +994,7 @@ if __name__ == "__main__":
                 msg['--'] = '-'
                 heading = int(vehicle.heading_theta / math.pi * 180)
                 msg['heading'] = heading
-                printPanel(msg, title='OBS')
+                # printPanel(msg, title='OBS')
                 min_heading = min(min_heading, heading)
                 max_heading = max(max_heading, heading)
         # input() 

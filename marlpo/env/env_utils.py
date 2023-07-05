@@ -5,6 +5,36 @@ from tqdm import tqdm
 from tabulate import tabulate
 import numpy as np
 
+from metadrive import (
+    MultiAgentRoundaboutEnv, MultiAgentIntersectionEnv, MultiAgentTollgateEnv,
+    MultiAgentBottleneckEnv, MultiAgentParkingLotEnv
+)
+
+SCENES = {
+    "roundabout": MultiAgentRoundaboutEnv,
+    "intersection": MultiAgentIntersectionEnv,
+    "tollgate": MultiAgentTollgateEnv,
+    "bottleneck": MultiAgentBottleneckEnv,
+    "parkinglot": MultiAgentParkingLotEnv,
+}
+
+
+def get_metadrive_ma_env_cls(scene_name: str):
+    return SCENES[scene_name]
+
+
+def get_abbr_scene(name: str):
+    scenes = {
+        "roundabout":   "Round",
+        "intersection": "Inter",
+        "tollgate":     "Tollg",
+        "bottleneck":   "Bottn",
+        "parkinglot":   "Parkl"
+    }
+    assert name in scenes
+    return scenes[name]
+
+
 # for single-agent env
 def metadrive_to_terminated_truncated_step_api(step_returns):
     """Function to transform step returns to new step API irrespective of input API.

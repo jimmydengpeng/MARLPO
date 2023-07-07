@@ -20,7 +20,7 @@ SCENE = "intersection" if not TEST else "intersection"
 
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
 # seeds = [5000, 6000, 7000]
-seeds = [6000]
+seeds = [7000]
 
 # NUM_AGENTS = [4, 8, 16, 30]
 NUM_AGENTS = [30]
@@ -50,7 +50,7 @@ if __name__ == "__main__":
         use_dict_obs=False,
         add_compact_state=True, # add BOTH ego- & nei- compact-state simultaneously
         add_nei_state=False,
-        num_neighbours=tune.grid_search([4]),
+        num_neighbours=tune.grid_search([1, 4]),
         neighbours_distance=20,
         # neighbours_distance=tune.grid_search([10, 20, 30]),
     )

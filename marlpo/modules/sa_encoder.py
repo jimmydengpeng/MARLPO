@@ -1,4 +1,5 @@
 import math
+from typing import Union
 import numpy as np
 import torch
 import torch.nn as nn
@@ -7,7 +8,10 @@ import torch.nn.functional as F
 from ray.rllib.utils.typing import Dict, TensorType, List, Tuple, ModelConfigDict
 
 from .attention import MultiHeadSelfAttention
-from ..utils import inspect, printPanel
+from modules.models_rlagents import MultiLayerPerceptron
+
+from utils import inspect, printPanel
+
 
 # NEIGHBOUR_ACTIONS = "neighbour_actions"
 
@@ -17,15 +21,15 @@ from ..utils import inspect, printPanel
 #     'obs_lidar': (72, ),
 # }
 
-AGENT_WISE_OBS_SHAPE = {
+DEFAULT_OBS_SHAPE = {
     'ego_state': (9, ),
     'ego_navi': (2, 5),
     'lidar': (72, ),
 }
 
-EMBEDDINGS = {
-    'state': 21,
-} # how many embedding laysers should init
+# EMBEDDINGS = {
+#     'state': 21,
+# } # how many embedding laysers should init
 
 OBS_TO_EMBEDDINGS = {
     'ego_state': 'state_embedding',
@@ -62,8 +66,6 @@ class SAEncoder(nn.Module):
     def __init__(
             self, 
             obs_dim: int, 
-            act_dim: int,
-            num_outputs: int, # NOTE: may not equal to act_dim, e.g. 4 != 2
             hidden_dim: int, 
             custom_model_config: dict = {},
         ):
@@ -71,24 +73,20 @@ class SAEncoder(nn.Module):
 
         self.obs_dim = obs_dim
         self.hidden_dim = hidden_dim
-
-
-        # == 1. Set embeddings ==
-        self.obs_shape = custom_model_config.get('obs_shape', AGENT_WISE_OBS_SHAPE)
+        self.obs_shape = custom_model_config.get('obs_shape', DEFAULT_OBS_SHAPE)
         self.num_neighbours = custom_model_config['num_neighbours']
         self.validate()
-        self.set_emdedding_layers(hidden_dim)
 
-        # printPanel(self.obs_shape, color='red', title='SAEncoder init')
-        printPanel(custom_model_config, title='SAEncoder init')
+        # printPanel(custom_model_config, title='SAEncoder init')
 
-
-        # self.act_embedding = get_layer(act_dim, hidden_dim)
+        # == 1. Set embeddings ==
+        self.set_emdedding_layers()
 
         # == 2. MultiHeadSelfAttention ==
         # self.attn = MultiHeadSelfAttention(hidden_dim, hidden_dim, 4, entry=self.compute_obs_seq_len()) # TODO
         self.attn = MultiHeadSelfAttention(hidden_dim, hidden_dim, n_heads=4, entry=0) # TODO
         # self.attn = MultiHeadSelfAttention(hidden_dim, hidden_dim, 4, entry='all')
+
 
         # == 3. dense ==
         l = nn.Linear(hidden_dim, hidden_dim)
@@ -99,34 +97,30 @@ class SAEncoder(nn.Module):
                                    nn.ReLU(inplace=True),
                                    nn.LayerNorm(hidden_dim))
 
-        # == 4. policy_head ==
-        self.policy_head = nn.Linear(hidden_dim, num_outputs) # NOTE output size
-        # policy head should have a smaller scale
-        nn.init.orthogonal_(self.policy_head.weight.data, gain=0.01)
-    
+        # === 4. layer_norm ===
+        self.layer_norm = nn.LayerNorm(hidden_dim)
+
 
     def validate(self):
-        all_dim = 0
-        for name, shape in self.obs_shape.items():
-            all_dim += np.product(shape)
-        assert self.obs_dim == all_dim
+        # check dims
+        assert  np.sum([np.product(shape) for shape in self.obs_shape.values()]) == self.obs_dim
         if NEI_STATE in self.obs_shape:
-            self.obs_shape[NEI_STATE][0] == self.num_neighbours
+            assert self.obs_shape[NEI_STATE][0] == self.num_neighbours
+        if COMPACT_NEI_STATE in self.obs_shape:
+            assert self.obs_shape[COMPACT_NEI_STATE][0] == self.num_neighbours
 
 
-    def set_emdedding_layers(self, hidden_dim):
-        _obs_dim_check = 0
-        for k, shape in self.obs_shape.items():
-            if 'mask' not in k:
-                _obs_dim_check += np.product(shape)
-                # setattr(self, k + '_embedding',
-                #         get_layer(shape[-1], hidden_dim))
-        assert self.obs_dim == _obs_dim_check
+    def set_emdedding_layers(self):
+        input_dim = self.obs_shape[COMPACT_EGO_STATE][0] # 8
+        self.ego_embedding = get_layer(input_dim, self.hidden_dim)
+        self.nei_embedding = get_layer(input_dim, self.hidden_dim)
 
-        for emb, dim in EMBEDDINGS.items():
-            setattr(self, emb + '_embedding', 
-                    get_layer(dim, hidden_dim))
+        # embedding_config = {
+        #     'layer': input_dim,
+        # }
+        # MultiLayerPerceptron()
 
+       
 
     def compute_obs_seq_len(self):
         res = 0
@@ -137,137 +131,40 @@ class SAEncoder(nn.Module):
 
     def forward(
         self,
-        # input_dict: Dict[str, TensorType],
-        obs: TensorType,
-        # nei_actions: TensorType,
+        obs: Dict[str, TensorType], 
         execution_mask=None, # TODO
-    ) -> Tuple[TensorType, List[TensorType]]:
+    ) -> TensorType:
         ''' args:
                 obs: shape(BatchSize, obs_dim)
                 execution_mask: Size(BS, num_nei), e.g. (1, 4)
         '''
         _msg = {}
+        _msg['obs'] = obs
 
-        assert obs.shape[-1] == self.obs_dim 
-        
-        # 1. slicing the obs
-        lidar_dim = self.obs_shape['lidar']
-        ego_nei_dim = self.obs_dim - lidar_dim
-        t_ego_nei = obs[:][:ego_nei_dim]
-        t_lidar = obs[:][ego_nei_dim:]
-        _pre_idx = 0
-        for state in OBS_TO_EMBEDDINGS:
-            idx = self.obs_shape[state]
-            # obs[:][] 
+    
+        # 1. split obs & get embeddings
+        ego_x = self.ego_embedding(obs[COMPACT_EGO_STATE].unsqueeze(-2)) # B x 1 x D_hidden
+        nei_x = self.nei_embedding(obs[COMPACT_NEI_STATE]) # B x num_nei x D_hidden
+        x = torch.concat((ego_x, nei_x), dim=-2)
 
-        _pre_idx = 0
-        for k, shape in self.obs_shape.items():
-            if 'lidar' not in k:
-                _cur_idx = _pre_idx + np.product(shape)
-                obs_dict[k] = obs[:, _pre_idx:_cur_idx].reshape(-1, *shape)
-                _pre_idx = _cur_idx
-        _msg['obs.shape'] = obs.shape
-        # _msg['obs'] = obs
-        __msg = {}
-        for k, t in obs_dict.items():
-            __msg[k] = t.shape
-        _msg['obs_dict'] = __msg
-        # _msg['obs_dict'] = obs_dict
+        _msg['ego_x_embedding'] = ego_x
+        _msg['nei_x_embedding'] = nei_x
+        _msg['x embedding'] = x
 
-
-
-
-
-
-
-
-
-        obs_dict = {} # add keys: obs_ego, obs_navi, obs_lidar
-        _pre_idx = 0
-        for k, shape in self.obs_shape.items():
-            if 'mask' not in k:
-                _cur_idx = _pre_idx + np.product(shape)
-                obs_dict[k] = obs[:, _pre_idx:_cur_idx].reshape(-1, *shape)
-                _pre_idx = _cur_idx
-        _msg['obs.shape'] = obs.shape
-        # _msg['obs'] = obs
-        __msg = {}
-        for k, t in obs_dict.items():
-            __msg[k] = t.shape
-        _msg['obs_dict'] = __msg
-        # _msg['obs_dict'] = obs_dict
-
-        '''
-        obs_dict: {
-          'obs_ego': torch.Size([1, 9]), 
-          'obs_navi': torch.Size([1, 2, 5]), 
-          'obs_lidar': torch.Size([1, 72])
-        } 
-        '''
-
-        # 2. get embeddings
-        obs_embedding_dict = {}
-        for k, x in obs_dict.items():
-            if 'mask' not in k:
-                assert hasattr(self, k + '_embedding')
-                obs_embedding_dict[k] = getattr(self, k + '_embedding')(x)
-            else:
-                assert k == 'obs_mask'
-        obs_embedding_dict['obs_ego'] = obs_embedding_dict['obs_ego'].unsqueeze(-2)
-        obs_embedding_dict['obs_lidar'] = obs_embedding_dict['obs_lidar'].unsqueeze(-2)
-        x = obs_embedding = torch.cat(list(obs_embedding_dict.values()), -2) # torch.Size([1, 4, 64]): BatchSize x seq_len x embedding_dim
-
-        __msg = {}
-        for k, t in obs_embedding_dict.items():
-            __msg[k] = t.shape
-        _msg['obs_embedding_dict'] = __msg
-        _msg['obs_embedding'] = obs_embedding.shape
-
-        # 3. self-attention encoding
-        # no other actions
+        # 2. self-attention encoding
         if execution_mask is None:
-            x = self.dense(self.attn(x, mask=None))
+            x = self.attn(x, mask=None) # scores (B x D_hidden)
+            _msg['after multi-head attention'] = x
+
+            x = self.dense(x)
+            _msg['after_dense'] = x
+
         else: 
-            # append neighbour actions as a sequence into before obs,
-            # 3.1 get action embedding
-            act_embedding = self.act_embedding(nei_actions)
-            _msg['nei_actions'] = nei_actions
-            _msg['act_embedding'] = act_embedding
+            raise NotImplementedError
 
-            # 3.2 concate obs & action embeddings as a squence
-            input_seq = torch.cat([x, act_embedding], -2) # (BS, seq_len, embedding_dim)
-            _msg['input_seq'] = input_seq
+        x = self.layer_norm(x + ego_x.squeeze(-2))
 
-            # 3.3 reshape execution_mask
-            execution_mask = torch.cat([
-                torch.ones(x.shape[:-1]), # (BS, obs_seq_len)
-                execution_mask
-            ], -1) # (BS, obs_seq_len + num_nei_actions) 
-            _msg['execution_mask'] = execution_mask
-            # print(execution_mask)
-
-            # 3.4 put seq into attention net
-            # printPanel({'execution_mask': execution_mask}, f'{self.__class__.__name__}')
-            x = self.dense(self.attn(input_seq, mask=execution_mask))
-
-            '''
-            act_embedding = self.act_embedding(nei_actions)
-            delta = torch.cat([
-                torch.zeros(*act_embedding.shape[:-2], 1,
-                            act_embedding.shape[-1]).to(act_embedding),
-                act_embedding * execution_mask.unsqueeze(-1)
-            ], -2)
-
-            if 'obs_mask' in obs.keys():
-                x = self.dense(self.attn(x - delta, mask=obs.obs_mask))
-            else:
-                x = self.dense(self.attn(x - delta, mask=None))
-            '''
-
-        _msg['after_dense'] = x
-        x = self.policy_head(x)
-        _msg['after_policy_head'] = x
-
+        _msg['after add_and_layer_norm'] = x
         # printPanel(_msg, f'{self.__class__.__name__}.forward()')
         return x
 

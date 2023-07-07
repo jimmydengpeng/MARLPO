@@ -3,6 +3,8 @@ import itertools
 import os
 import os.path as osp
 import re
+import json
+import pickle
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -140,6 +142,24 @@ def read_csv_in_dir(exp_dir, param_pattern, columns: list, verbose=False):
     return csv_list
 
 
+def append_seed_in_dir_name(exp_dir):
+    ''' 自动搜索 exp_dir 中的所有 trials 目录中的params.json 文件
+        获取其中的start_seed属性, 并将其附加在 trial 目录名后
+        用于目录名太长没有start_seed信息
+    '''
+    trial_dirs = [entry for entry in os.listdir(exp_dir) if osp.isdir(osp.join(exp_dir, entry))]
+    
+    for t_dir in tqdm(trial_dirs):
+        t_dir = osp.join(exp_dir, t_dir)
+        # print(t_dir)
+        with open(osp.join(t_dir, "params.json"), "r") as f:
+            params = json.loads(f.read())
+            seed = params['env_config']['start_seed']
+        
+        os.rename(t_dir, t_dir+'_start_seed='+str(seed))
+        # break
+
+
 def plot_mean_std(
     data, 
     x: str, 
@@ -258,26 +278,80 @@ def plot_all_metrics_for_params_in_one_exp_dir(
     
 
 
+def compare_all_metrics_for_multi_experiments(
+    exps: Dict[str, Union[str, Tuple[str, str]]],
+    title: str = '',
+):
+    ''' 绘制多个实验目录中不同超参设置下的所有指标, 绘制一个2X2的图形
+        用于不同目录下不同超参设置下在各个指标下的结果对比
+    Args:
+        exp_dirs_params: 
+            a dict { exp_name -> { } }
+                                  ╰────> keys: 'algo_name', 'exp_dir', 'param_pattern', 'label'
+    '''
+    fig = plt.figure(figsize=(12, 8))
+    fig.subplots_adjust(top=0.92, hspace=0.25, wspace=0.2)
+    i = 1
+    for metric, col in all_metrics.items(): # 4 metrics
+        plt.subplot(2, 2, i)
+        xlabel: bool = i >= 3
+
+        for exp_dir, info in exps.items():
+            pattern = info.get('pattern', None) # TODO
+            label = info.get('algo_name', '') + ' ' + info.get('label', '')
+
+            plot_one_exp(
+                exp_dir=exp_dir, 
+                param_pattern=pattern, 
+                col=col, 
+                title=metric, 
+                exp_label=label,
+                xlabel=xlabel, 
+                ylabel=False,
+            )
+            
+        i += 1
+
+    plt.suptitle(title)
+
+
+
 
 
 if __name__ == "__main__":
 
-    exp_dir = 'exp_results/IPPO_Inter_8-30agents_(compact-state)'
+    baseline_dir = 'exp_results/IPPO_Intersection_8seeds_30agents_repeat2'
+    v0_dir = 'exp_results/SAPPO_Inter_30agents_v0'
+    v2_dir = 'exp_results/SAPPO_Inter_30agents_v2(better_attention)'
+
     param_space = {
-        # 'agents': [['30a-add-1-nei-state-navi'], ['30']],
-        'agents': [['',], ['8',]],
-        'num_neighbours': [['1-nei', '4-nei'], ['1', '4']],
+        'agents': [['30a'], ['30']],
     }
-    param_pattern_dict = get_param_patthern(param_space, verbose=True) # {lable -> re pattern}
+    param_pattern_dict = get_param_patthern(param_space, verbose=False) # {lable -> re pattern}
 
-    # exp_dir_30a = 'exp_results/IPPO_Intersection_8seeds_30agents_repeat2'
-    # add_plot_args = dict(
-    #     IPPO=dict(
-    #         exp_dir=exp_dir_30a,
-    #         pattern=None, 
-    #         label='30a', 
-    # ))
 
-    # plot_all_metrics_for_params_in_one_exp_dir(exp_dir, 'IPPO', param_pattern_dict, 'Compact Ego- and Nei- states with Lidar', add_plot_args)
 
-    # plt.show()
+    exps = {
+        v0_dir: dict(
+            algo_name='IPPO', 
+            exp_dir=v0_dir, 
+            param_pattern=None, 
+            label='v0',
+        ),
+        v2_dir: dict(
+            algo_name='IPPO', 
+            exp_dir=v2_dir, 
+            param_pattern=None, 
+            label='v2',
+        ),
+        baseline_dir: dict(
+            algo_name='IPPO', 
+            exp_dir=baseline_dir, 
+            param_pattern=None, 
+            label='baseline',
+        ),
+    }
+
+    compare_all_metrics_for_multi_experiments(exps)
+
+    plt.show()

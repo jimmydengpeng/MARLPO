@@ -130,7 +130,8 @@ class MultiHeadSelfAttention(nn.Module):
         # printPanel({'entry_dim': self.entry_dim}, f'{self.__class__.__name__}')
 
     def forward(self, x, mask):
-        '''args:
+        ''' 输入的是 embeddings 的序列
+        args:
             x: Size(BatchSize x seq_len x embedding_dim)
         '''
         _msg = {}

@@ -55,13 +55,16 @@ NEI_STATE = 'nei_state'
 │       9          5        5      72        │
 ╰────────────────────────────────────────────╯
 
-╭─ after ────────────────────────────────────╮
-│  [compact_ego_state]                   8   │ ──╮
-│ ────────────────────────────────────────── │   │ 
-│  [ego-state]                           9   │   ├───> [x, y, vx, vy, heading, speed, steering, yaw_rate]
-│  [ego-navi]                         2x 5   │   │
-│ ────────────────────────────────────────── │   │   
-│  [compact-nei-state]...             Nx 8   │ ──╯
+                        ╭─>[x, y, vx, vy, heading, speed, steering, yaw_rate]
+                        ╭─>[presence, x, y, vx, vy, heading, steering, yaw_rate]
+                        │
+╭─ after ───────────────┼────────────────────╮
+│  [compact_ego_state] ─╯                8   │ 
+│ ────────────────────────────────────────── │ 
+│  [ego-state]                           9   │ 
+│  [ego-navi]                         2x 5   │ 
+│ ────────────────────────────────────────── │ 
+│  [compact-nei-state]...             Nx 8   │ 
 │  [nei-state]...                     Nx 9   │
 │ ────────────────────────────────────────── │
 │  [lidar]                              72   │
@@ -118,7 +121,7 @@ class CCEnv:
         # 如果没有增加任何观测，并且也没有使用字典观测空间，就返回原始空间
         self.return_original_obs = not (
             self.config.get('add_compact_state', False) 
-            or self.config.get('add_compact_state', False)
+            or self.config.get('add_nei_state', False)
         ) and not self.config.get('use_dict_obs', False) 
 
         self.obs_dim = self._compute_obs_dim()
@@ -292,6 +295,8 @@ class CCEnv:
     
 
     def get_compact_state(self, agent: str, o_dict: Dict[str, np.ndarray]):
+        ''' [presence, x, y, vx, vy, heading, steering, yaw_rate] '''
+
         ego_state = o_dict[EGO_STATE]
 
         if hasattr(self, "vehicles_including_just_terminated"):
@@ -323,12 +328,14 @@ class CCEnv:
             velocity = self._last_info[agent].get('velocity_array', np.array((0., 0.)))
             heading = self._last_info[agent].get('heading', np.array([0.]))
         
+        # presence
+        presence = np.ones((1))
         # speed, yaw_rate, steering
         speed = np.zeros((1)) + ego_state[3]
         steering = np.zeros((1)) + ego_state[4]
         yaw_rate = np.zeros((1)) + ego_state[7]
 
-        return np.concatenate((pos, velocity, heading, speed, steering, yaw_rate))
+        return np.concatenate((presence, pos, velocity, heading, steering, yaw_rate))
 
 
     def _add_compact_state(
@@ -932,9 +939,9 @@ if __name__ == "__main__":
     env_name, env_cls = get_rllib_cc_env(MultiAgentIntersectionEnv, return_class=True)
     # print(env_name)
 
-    env_cls.get_obs_shape(config)
+    # env_cls.get_obs_shape(config)
 
-    exit()
+    # exit()
 
     env = env_cls(config)
     o, i = env.reset()
@@ -978,7 +985,9 @@ if __name__ == "__main__":
             msg = {}
             if isinstance(o, dict):
                 msg[COMPACT_EGO_STATE] = o[COMPACT_EGO_STATE]
-                msg[EGO_STATE] = o[EGO_STATE]
+                msg['-'] = '-'
+                msg[COMPACT_NEI_STATE] = o[COMPACT_NEI_STATE]
+                # msg[EGO_STATE] = o[EGO_STATE]
                 msg['*'] = '*'
                 
             # named_obs = interpre_obs(o[k])
@@ -994,7 +1003,7 @@ if __name__ == "__main__":
                 msg['--'] = '-'
                 heading = int(vehicle.heading_theta / math.pi * 180)
                 msg['heading'] = heading
-                # printPanel(msg, title='OBS')
+                printPanel(msg, title='OBS')
                 min_heading = min(min_heading, heading)
                 max_heading = max(max_heading, heading)
         # input() 

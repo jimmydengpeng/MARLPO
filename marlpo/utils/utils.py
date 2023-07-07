@@ -1,5 +1,5 @@
 import argparse, sys
-from env.env_utils import get_abbr_scene
+from marlpo.env.env_utils import get_abbr_scene
 
 
 def get_train_parser():
@@ -46,7 +46,7 @@ def get_exp_name(algo_name, exp_des, scene, num_agents):
 
 def get_num_workers():
     if sys.platform.startswith('darwin'):
-        return 4
+        return 7
     elif sys.platform.startswith('linux'):
         return 4
     else:

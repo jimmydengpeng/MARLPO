@@ -22,11 +22,12 @@ ALGO_NAME = "SAPPO"
 SCENE = "intersection" if not TEST else "intersection" 
 
 # === Env Seeds ===
-seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-# seeds = [6000]
+# seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+seeds = [6000, 7000]
 
-NUM_AGENTS = [4, 8, 16, 30]
-EXP_DES = ""
+# NUM_AGENTS = [4, 8, 16, 30]
+NUM_AGENTS = [30]
+EXP_DES = "v3(better_attention_layer_norm)"
 
 if __name__ == "__main__":
     args = get_train_parser().parse_args()
@@ -52,6 +53,9 @@ if __name__ == "__main__":
     # if TEST
     stop, exp_name, num_rollout_workers = get_args_only_if_test(algo_name=ALGO_NAME, env_config=env_config, exp_des=EXP_DES, scene=SCENE, num_agents=NUM_AGENTS, test=TEST)
     
+    # stop = {"timesteps_total": 1e7}
+
+
     # === Algo Setting ===
     algo_config = (
         SAPPOConfig()
@@ -73,7 +77,12 @@ if __name__ == "__main__":
             model={
                 "custom_model_config": {
                     "env_cls": env_cls,
-                }
+                    # 'embedding_hiddens': [64, 64],
+                    'attention_dim': 64,
+                    "policy_head_hiddens": [64, 64],
+                },
+                # "vf_share_layers": True,
+                "vf_share_layers": True, 
             },
         )
         .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)

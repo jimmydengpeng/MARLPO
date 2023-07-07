@@ -13,6 +13,7 @@ from ray.rllib.utils.framework import try_import_torch
 from ray.rllib.utils.typing import Dict, TensorType, List, Tuple, ModelConfigDict
 
 from marlpo.modules import SAEncoder
+from modules.models_rlagents import EgoAttentionNetwork
 from marlpo.utils import inspect, printPanel
 
 torch, nn = try_import_torch()
@@ -26,6 +27,21 @@ NEIGHBOUR_INFOS = "neighbour_infos"
 NEIGHBOUR_ACTIONS = "neighbour_actions"
 EXECUTION_MASK = 'execution_mask'
 
+
+# === KEYS ===
+EGO_STATE = 'ego_state'
+EGO_NAVI = 'ego_navi'
+LIDAR = 'lidar'
+COMPACT_EGO_STATE = 'compact_ego_state'
+COMPACT_NEI_STATE = 'compact_nei_state'
+NEI_STATE = 'nei_state'
+
+
+ATTENTION_HIDDEN_DIM = 64
+ATTENTION_HEADS = 4
+
+RELATIVE_OBS_DIM = 91
+POLICY_HEAD_ACTIVATION = 'relu'
 
 class SAModel(TorchModelV2, nn.Module):
 
@@ -42,27 +58,41 @@ class SAModel(TorchModelV2, nn.Module):
         )
         nn.Module.__init__(self)
 
+        # == common attr ==
         self.custom_model_config = model_config['custom_model_config']
-    
-        # == only for ar model ==
-        self.use_attention = self.custom_model_config.get("use_attention", False)
-        self.num_neighbours = model_config['custom_model_config'].get('num_neighbours', 0)
-        self.use_centralized_critic = model_config['custom_model_config'].get('use_centralized_critic', False)
+        self.obs_dim = int(np.product(self.obs_space.shape))
 
+        # == attention mudule attr ==
+        self.use_attention = self.custom_model_config.get("use_attention", False)
+        self.hidden_dim = self.custom_model_config.get('attention_dim', ATTENTION_HIDDEN_DIM)
+        self.num_neighbours = self.custom_model_config.get('num_neighbours', 0)
+
+        self.use_centralized_critic = self.custom_model_config.get('use_centralized_critic', False)
         self.critic_obs_dim = self.get_critic_obs_dim()
 
+        # == actor ==
         if self.use_attention:
-            self.actor = self._get_attention_actor(model_config, num_outputs)
-        else:
-            printPanel({'self.obs_space': self.obs_space})
-            self.actor = self._get_fcn_actor(model_config, num_outputs)
+            self.obs_shape = self.custom_model_config['env_cls'].get_obs_shape(self.custom_model_config['env_config'])
 
+            self.attention_backbone = self._get_attention_backbone()
+            print('==='*20)
+            print(self.attention_backbone)
+            print('==='*20)
+            self.policy_head = self.get_policy_head(num_outputs, model_config)
+            # nn.init.orthogonal_(self.policy_head.weight.data, gain=0.01)
+        else:
+            self.actor = self._get_fcn_actor(model_config, num_outputs) # TODO 让actor Critic共享中间的特征向量
+
+        # == critic ==
         self._init_critic(model_config)
+
+        # svo net
+        self.svo_layer = self.get_policy_head(num_outputs=1, model_config=model_config)
 
         # Holds the current "base" output (before logits layer).
         self._features = None
         # Holds the last input, in case value branch is separate.
-        self._last_flat_in = None
+        self._last_obs_in = None
 
         # TODO === Fix WARNING catalog.py:617 -- Custom ModelV2 should accept all custom options as **kwargs, instead of expecting them in config['custom_model_config']! === 
 
@@ -146,29 +176,86 @@ class SAModel(TorchModelV2, nn.Module):
                 self.num_outputs = ([int(np.product(self.obs_space.shape))] + hiddens[-1:])[-1]
 
         # Layer to add the log std vars to the state-dependent means.
-        if self.free_log_std and self._logits:
+        if hasattr(self, 'free_log_std') and self.free_log_std and self._logits:
             self._append_free_log_std = AppendBiasLayer(num_outputs)
         
         return nn.Sequential(*layers)
 
 
-    def _get_attention_actor(self, model_config, num_outputs):
-        msg = {}
-        msg['self.custom_model_config'] = self.custom_model_config
-        msg['self.obs_space'] = self.obs_space
-
+    def _get_attention_backbone(self) -> nn.Module:
+        ''' 该网络会返回一个经过注意力加权后的特征向量，维度为 B x 1 x D_hidden
+        '''
         # == get obs_shape for every env_config == 
-        self.obs_shape = self.custom_model_config['env_cls'].get_obs_shape(self.custom_model_config['env_config'])
-        self.custom_model_config['obs_shape'] = self.obs_shape
 
-        msg['obs_shape'] = self.obs_shape
-        printPanel(msg, title='_get_attention_actor', color='red')
+        # self.custom_model_config['obs_shape'] = self.obs_shape
+        input_dim = self.obs_shape[COMPACT_EGO_STATE][0] # 8
 
-        obs_dim = int(np.product(self.obs_space.shape))
-        act_dim = self.action_space.shape[0]
-        hidden_dim = self.custom_model_config.get('attention_dim', 64)
-        encoder = SAEncoder(obs_dim, act_dim, num_outputs, hidden_dim, self.custom_model_config)
+        ''' old '''
+        # encoder = SAEncoder(self.obs_dim, self.hidden_dim, self.custom_model_config)
+
+        ''' new '''
+        atn_net_config = {
+            "embedding_layer": {
+                "type": "MultiLayerPerceptron",
+                "layers": [64, 64],
+                "reshape": False,
+                "in": input_dim,
+            },
+            "others_embedding_layer": {
+                "type": "MultiLayerPerceptron",
+                "layers": [64, 64],
+                "reshape": False,
+                "in": input_dim,
+            },
+            "self_attention_layer": None,
+            "attention_layer": {
+                "type": "EgoAttention",
+                "feature_size": 64,
+                "heads": ATTENTION_HEADS,
+            },
+            "output_layer": {
+                "type": "MultiLayerPerceptron",
+                "layers": [64, 64],
+                "reshape": False
+        }}
+
+        encoder = EgoAttentionNetwork(atn_net_config)
+
         return encoder
+
+
+    def get_policy_head(self, num_outputs, model_config):
+        ''' 用于从之前网络中提取到的特征向量(可能再和原始观测输入concat)得到动作输出
+        '''
+        input_dim = self.hidden_dim + RELATIVE_OBS_DIM
+        mlp_hiddens = list(model_config.get("fcnet_hiddens", [])) + list(model_config.get("post_fcnet_hiddens", []))
+        hiddens = self.custom_model_config.get('policy_head_hiddens', mlp_hiddens)
+        activation = POLICY_HEAD_ACTIVATION
+
+        layers = []
+        prev_layer_size = input_dim
+
+        # Create layers 0 to second-last.
+        for size in hiddens:
+            layers.append(
+                SlimFC(
+                    in_size=prev_layer_size,
+                    out_size=size,
+                    initializer=normc_initializer(1.0),
+                    activation_fn=activation
+            ))
+            prev_layer_size = size
+            
+        layers.append(
+            SlimFC(
+                in_size=prev_layer_size,
+                out_size=num_outputs,
+                initializer=normc_initializer(0.01),
+                activation_fn=None
+            ))
+        
+        return nn.Sequential(*layers)
+
 
 
     def _init_critic(self, model_config):
@@ -177,7 +264,9 @@ class SAModel(TorchModelV2, nn.Module):
         '''
         hiddens = list(model_config.get("fcnet_hiddens", [])) + list(model_config.get("post_fcnet_hiddens", [])) # [256, 256]
         activation = model_config.get("fcnet_activation")
-        self.vf_share_layers = model_config.get("vf_share_layers") # False by default
+        self.vf_share_layers = model_config.get("vf_share_layers") # False by default, if True, then use features abstracted from backbone
+
+        prev_vf_layer_size = self.critic_obs_dim
 
         self._value_branch_separate = None
         if not self.vf_share_layers:
@@ -201,23 +290,34 @@ class SAModel(TorchModelV2, nn.Module):
                 )
                 prev_vf_layer_size = size
             self._value_branch_separate = nn.Sequential(*vf_layers)
+        
+            self.value_head = SlimFC(
+                in_size=prev_vf_layer_size, 
+                out_size=1, 
+                initializer=normc_initializer(0.01), 
+                activation_fn=None
+            )
+        else:
+            # prev_vf_layer_size = self.hidden_dim + self.critic_obs_dim
+            self.value_head = self.get_policy_head(num_outputs=1, model_config=model_config)
 
-        self._value_branch = SlimFC(
-            in_size=prev_vf_layer_size, 
-            out_size=1, 
-            initializer=normc_initializer(0.01), 
-            activation_fn=None
-        )
 
     def get_critic_obs_dim(self):
         if not self.use_centralized_critic:
-            return self.obs_space.shape[0]
+            if self.use_attention:
+                return RELATIVE_OBS_DIM
+            else:
+                return self.obs_space.shape[0]
         else:
             return get_centralized_critic_obs_dim(
                 self.obs_space, self.action_space, self.model_config["custom_model_config"]["counterfactual"],
                 self.model_config["custom_model_config"]["num_neighbours"],
                 self.model_config["custom_model_config"]["fuse_mode"]
             )
+
+    def get_relative_obs(self, obs_dict):
+        entries = [EGO_STATE, EGO_NAVI, LIDAR]
+        return torch.concat([obs_dict[k].reshape((obs_dict[k].shape[0], -1)) for k in entries], dim=-1)
 
 
     @override(TorchModelV2)
@@ -274,25 +374,47 @@ class SAModel(TorchModelV2, nn.Module):
         msg['use_attention'] = self.use_attention
         msg['obs type'] = type(input_dict['obs']).__name__
 
-        printPanel(msg, f'{self.__class__.__name__}.forward()')
+        
 
         # attention actor
         if self.use_attention:
+            obs = input_dict["obs"] # Dict, str -> (BatchSize, *)
             assert isinstance(obs, dict)
-            obs = input_dict["obs"].float() # Dict, str -> (BatchSize, *)
+            self._last_obs_in = o = self.get_relative_obs(obs)
+
+            ego_x = obs[COMPACT_EGO_STATE].unsqueeze(-2) # B x 1 x D_absolute_state_dim
+            nei_x = obs[COMPACT_NEI_STATE] # B x num_nei x D_absolute_state_dim
+            x = torch.concat((ego_x, nei_x), dim=-2)
+
+
+            x = self.attention_backbone(x) # B x H_hidden
+            msg['after attention'] = x
+            # x = x.squeeze(dim=-2)
+            # msg['after squeeze'] = x
+            self._features = x
+            
+            # o = torch.concat((
+            #     obs[EGO_STATE], 
+            #     obs[EGO_NAVI].reshape(obs[EGO_NAVI].shape[0], -1), 
+            #     obs[LIDAR]), -1)
+            x = torch.concat((x, o), -1) # B x (D_hidden + D_obs)
+
+            msg['after concat'] = x
+            logits = self.policy_head(x)
+            msg['after policy_head'] = logits
+
         # mlp actor
         else: 
-            obs = input_dict["obs_flat"] # (BatchSize, OBS_DIM)
+            obs_flat = input_dict["obs_flat"] # (BatchSize, OBS_DIM)
+            self._last_obs_in = obs_flat # (BatchSize, OBS_DIM)
+            logits = self.actor(obs_flat)
+            # self._features = logits
 
-        self._last_flat_in = input_dict["obs_flat"] # (BatchSize, OBS_DIM)
 
-        logits = self.actor(obs)
-
-        if self.free_log_std: # False by default
+        if hasattr(self, 'free_log_std') and self.free_log_std: # False by default
             logits = self._append_free_log_std(logits)
-        
-        self._features = logits
 
+        # printPanel(msg, f'{self.__class__.__name__}.forward()')
         return logits, state
 
 
@@ -300,12 +422,13 @@ class SAModel(TorchModelV2, nn.Module):
     def value_function(self) -> TensorType:
         if not self.use_centralized_critic:
             if self._value_branch_separate:
-                out = self._value_branch(
-                    self._value_branch_separate(self._last_flat_in)
+                out = self.value_head(
+                    self._value_branch_separate(self._last_obs_in)
                 ).squeeze(1)
             else:
                 assert self._features is not None, "must call forward() first"
-                out = self._value_branch(self._features).squeeze(1)
+                x = torch.concat((self._last_obs_in, self._features), -1) # B x (D_hidden + D_obs)
+                out = self.value_head(x).squeeze(1)
             return out
         else:
             raise NotImplementedError
@@ -320,8 +443,8 @@ class SAModel(TorchModelV2, nn.Module):
 
     # TODO
     def central_value_function(self, obs):
-        assert self._value_branch is not None
-        return torch.reshape(self._value_branch(self._value_branch_separate(obs)), [-1])
+        assert self.value_head is not None
+        return torch.reshape(self.value_head(self._value_branch_separate(obs)), [-1])
 
 
 

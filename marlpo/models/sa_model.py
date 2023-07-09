@@ -93,6 +93,8 @@ class SAModel(TorchModelV2, nn.Module):
         self._features = None
         # Holds the last input, in case value branch is separate.
         self._last_obs_in = None
+        # 
+        self.last_svo = None
 
         # TODO === Fix WARNING catalog.py:617 -- Custom ModelV2 should accept all custom options as **kwargs, instead of expecting them in config['custom_model_config']! === 
 
@@ -402,6 +404,8 @@ class SAModel(TorchModelV2, nn.Module):
             msg['after concat'] = x
             logits = self.policy_head(x)
             msg['after policy_head'] = logits
+
+            self.last_svo = self.svo_layer(x)
 
         # mlp actor
         else: 

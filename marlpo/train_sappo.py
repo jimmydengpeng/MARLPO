@@ -16,18 +16,20 @@ from utils import (
 
 
 TEST = False # <~~ Toggle TEST mod here! 
-TEST = True
+# TEST = True
 
 ALGO_NAME = "SAPPO"
 SCENE = "intersection" if not TEST else "intersection" 
 
 # === Env Seeds ===
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-seeds = [6000, 7000]
+# seeds = [6000, 7000]
+# seeds = [5000]
+seeds = [8000, 9000, 10000, 11000, 12000]
 
 # NUM_AGENTS = [4, 8, 16, 30]
 NUM_AGENTS = [30]
-EXP_DES = "v3(better_attention_layer_norm)"
+EXP_DES = "v4(share_vf_5e6)"
 
 if __name__ == "__main__":
     args = get_train_parser().parse_args()
@@ -51,9 +53,10 @@ if __name__ == "__main__":
     )
 
     # if TEST
-    stop, exp_name, num_rollout_workers = get_args_only_if_test(algo_name=ALGO_NAME, env_config=env_config, exp_des=EXP_DES, scene=SCENE, num_agents=NUM_AGENTS, test=TEST)
+    stop, exp_name, num_rollout_workers = get_args_only_if_test(algo_name=ALGO_NAME, env_config=env_config, exp_des=EXP_DES, scene=SCENE, num_agents=NUM_AGENTS, test=TEST) # env_config will be modified
     
-    # stop = {"timesteps_total": 1e7}
+    stop = {"timesteps_total": 3e6}
+    # env_config['num_agents'] = 3
 
 
     # === Algo Setting ===

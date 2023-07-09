@@ -1,10 +1,21 @@
 import gym
 from ray.rllib.algorithms.ppo.ppo import PPO, PPOConfig
 from ray.rllib.algorithms.ppo.ppo_torch_policy import PPOTorchPolicy
-from ray.rllib.evaluation.postprocessing import Postprocessing
+from ray.rllib.evaluation.postprocessing import (
+    Postprocessing, 
+    compute_gae_for_sample_batch, 
+    compute_advantages
+    )
 from ray.rllib.models.catalog import ModelCatalog
 from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.policy.sample_batch import SampleBatch
+from ray.rllib.utils.annotations import (
+    DeveloperAPI,
+    OverrideToImplementCustomLogic,
+    OverrideToImplementCustomLogic_CallToSuperRecommended,
+    is_overridden,
+    override,
+)
 from ray.rllib.utils.framework import try_import_torch
 from ray.rllib.utils.torch_utils import (
     explained_variance,
@@ -74,6 +85,50 @@ class SAPPOConfig(PPOConfig):
 
 
 class SAPPOPolicy(PPOTorchPolicy):
+    # @override(PPOTorchPolicy)
+    # def extra_action_out(self, input_dict, state_batches, model, action_dist):
+    #     return {
+    #         "SVO": model.last_svo,
+    #         SampleBatch.VF_PREDS: model.value_function(),
+    #     }
+
+
+    # @override(PPOTorchPolicy)
+    # def postprocess_trajectory(
+    #     self, sample_batch, other_agent_batches=None, episode=None
+    # ):
+    #     msg = {}
+    #     msg['sample_batch'] = sample_batch
+    #     msg['other_agent_batches'] = other_agent_batches
+    #     msg['episode'] = episode
+    #     printPanel(msg, f'{self.__class__.__name__}.postprocess_trajectory()')
+    #     # print('sample_batch', sample_batch)
+    #     # print('other_agent_batches', other_agent_batches)
+    #     with torch.no_grad():
+    #         o = sample_batch[SampleBatch.CUR_OBS]
+    #         odim = o.shape[1]
+
+    # #         # if sample_batch[SampleBatch.DONES][-1]:
+    # #         #     last_r = 0.0
+    # #         # else:
+    # #         #     last_r = sample_batch[SampleBatch.VF_PREDS][-1]
+           
+    # #         # batch = compute_advantages(
+    # #         #     sample_batch,
+    # #         #     last_r,
+    # #         #     self.config["gamma"],
+    # #         #     self.config["lambda"],
+    # #         #     use_gae=self.config["use_gae"],
+    # #         #     use_critic=self.config.get("use_critic", True)
+    # #         # )
+
+    #         return compute_gae_for_sample_batch(
+    #             self, sample_batch, other_agent_batches, episode
+    #         )
+    # #     return batch
+
+
+
     def loss(self, model, dist_class, train_batch):
         """
         Compute loss for Proximal Policy Objective.

@@ -304,7 +304,7 @@ if __name__ == '__main__':
         '[red]name': 'John[/]',
         'age': 30,
         '*': '*',
-        '[green]data_0': 'DATA0[/]',
+        '[purple]data_0': 'DATA0[/]',
         'data_1': d0,
         'data_2': {
             'd': 'DDD',
@@ -317,7 +317,7 @@ if __name__ == '__main__':
     # print(dict_to_str(d2))
     # print(dict_to_str(d2, use_json=True))
 
-    printPanel(data, title='title',align=True, raw_output=False, color='purple')
+    printPanel(data, title='title',align=True, raw_output=False, color='blue')
 
 
 

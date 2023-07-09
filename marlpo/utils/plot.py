@@ -95,7 +95,7 @@ def get_param_patthern(param_space: Dict[str, List[str]], verbose=False) -> Dict
 
     product_helper_str = 'x'.join([str(len(pl)) for pl in all_param_list])
     msg['param combinations'] = f'total {product_helper_str}={len(res)} combinations'
-    msg['==']= '-'
+    msg['*']= '*'
     msg['label'] = 're pattern:'
     msg['-']= '-'
     for i, k in enumerate(res):
@@ -107,12 +107,19 @@ def get_param_patthern(param_space: Dict[str, List[str]], verbose=False) -> Dict
     return res
 
 
-def read_csv_in_dir(exp_dir, param_pattern, columns: list, verbose=False):
+def read_csv_in_dir(
+    exp_dir, 
+    param_pattern: str, 
+    columns: list, 
+    seeds: Union[int, List[int]] = None, 
+    verbose: bool = False,
+) -> List:
     ''' 给定一个实验目录和一个正则表达式匹配式, 筛序出该目录下所有符合该表达式的目录
         并返回其中的progress.csv文件内所需要的列
 
-        NOTE: 自动还会聚集同一个param_pattern的不同种子
+        如果seed为None: 还会聚集同一个param_pattern的不同种子
         允许输入的pattern也是匹配种子的pattern, 结果不变
+        如果指定了seed, 则只读取包含这一个seed或这些seed的目录
     '''
     trial_dirs = [entry for entry in os.listdir(exp_dir) if osp.isdir(osp.join(exp_dir, entry))]
     csv_list = []
@@ -120,25 +127,33 @@ def read_csv_in_dir(exp_dir, param_pattern, columns: list, verbose=False):
 
     seed_pattern = r'start_seed=(\d*)'
 
+    if isinstance(seeds, int):
+        seeds = [seeds]
+
     if verbose:
-        print(f'Reading csv in {exp_dir}...')
+        print(f'Reading csv in {exp_dir} for pattern {param_pattern}...')
         trial_dirs = tqdm(trial_dirs)
+
     for d in trial_dirs:
+        # 首先判断目录名是否包含 param_pattern
         if re.search(param_pattern, d):
+            # 筛选出目录名中包含种子的的部分: start_seed=*
             match = re.search(seed_pattern, d)
             if match: 
                 seed = match.group()[len('start_seed='):]
+                if seeds and (int(seed) not in seeds):
+                    continue
                 all_seeds.append(seed)
-            file_path = osp.join(exp_dir, d, 'progress.csv')
-            progress = pd.read_csv(file_path)
-            data = progress[columns]
-            csv_list.append(data)
+                file_path = osp.join(exp_dir, d, 'progress.csv')
+                progress = pd.read_csv(file_path)
+                data = progress[columns]
+                csv_list.append(data)
 
-            if verbose:
-                print('found param pattern:', param_pattern)
+            # if verbose:
+            #     print('found param pattern:', param_pattern)
     
     if verbose:
-        print(f'Finished reading {len(all_seeds)} seed: ', ', '.join(all_seeds))
+        print(f'Found {len(all_seeds)} seed (', ', '.join(all_seeds), ')')
     return csv_list
 
 
@@ -166,8 +181,8 @@ def plot_mean_std(
     col: List[str], 
     title=None, 
     lable=None,
-    xlabel=True,
-    ylabel=True,
+    xlabel: bool = True,
+    ylabel: bool = True,
 ):
     ''' 输入一个data 包含以同一组数据为x轴的多个种子的多列数据 
         按相同x值聚集某列的不同种子的数据
@@ -194,12 +209,13 @@ def plot_mean_std(
 
 def plot_one_exp(
         exp_dir, 
-        param_pattern=None, 
+        param_pattern: str = None, 
+        seeds: Union[int, List[int]] = None,
         col=succ_col, 
         title=None, 
         exp_label=None, 
-        xlabel=True,
-        ylabel=True,
+        xlabel: bool = True,
+        ylabel: bool = True,
         verbose=False
     ):
     ''' 简单从一个exp目录根据pattern筛选所有trial
@@ -208,8 +224,19 @@ def plot_one_exp(
     '''
     if param_pattern == None:
         param_pattern = r'start_seed=(\d*)'
-    df_list = read_csv_in_dir(exp_dir, param_pattern, col, verbose=verbose)
-    data = pd.concat(df_list)
+
+    df_list = read_csv_in_dir(
+        exp_dir=exp_dir, 
+        param_pattern=param_pattern, 
+        columns=col, 
+        seeds=seeds, 
+        verbose=verbose
+    )
+    if df_list:
+        data = pd.concat(df_list)
+    else:
+        return
+
     plot_mean_std(data, x, col, title=title, lable=exp_label, xlabel=xlabel, ylabel=ylabel)
 
 
@@ -237,7 +264,7 @@ def compare_all_metrics(exp_dirs: Dict[str, Union[str, Tuple[str, str]]]):
         i += 1
 
 
-def plot_all_metrics_for_params_in_one_exp_dir(
+def compare_all_metrics_in_one_experiment(
     exp_dir: str, 
     algo_name: str,
     param_pattern_dict: Dict[str, str],
@@ -285,73 +312,111 @@ def compare_all_metrics_for_multi_experiments(
     ''' 绘制多个实验目录中不同超参设置下的所有指标, 绘制一个2X2的图形
         用于不同目录下不同超参设置下在各个指标下的结果对比
     Args:
-        exp_dirs_params: 
-            a dict { exp_name -> { } }
-                                  ╰────> keys: 'algo_name', 'exp_dir', 'param_pattern', 'label'
+        exps: mapping ( exp_name -> exp_info { } )
+            exp_info: dict
+              ╰───> keys: 
+                        'algo_name', 
+                        'param_pattern_dict', 
+                        'seeds',
+                        'label', 如果 param_pattern_dict 未提供，则使用
     '''
     fig = plt.figure(figsize=(12, 8))
     fig.subplots_adjust(top=0.92, hspace=0.25, wspace=0.2)
+    
     i = 1
     for metric, col in all_metrics.items(): # 4 metrics
         plt.subplot(2, 2, i)
         xlabel: bool = i >= 3
 
         for exp_dir, info in exps.items():
-            pattern = info.get('pattern', None) # TODO
-            label = info.get('algo_name', '') + ' ' + info.get('label', '')
+            # 获取 param_pattern, 如果没提供，则用None代替
+            param_pattern_dict = info.get('param_pattern_dict', {'': None})
+            for plabel, pattern in param_pattern_dict.items():
+                label = info.get('label', '') 
+                if label:
+                    label = label + ' ' + plabel
+                else:
+                    label = plabel
 
-            plot_one_exp(
-                exp_dir=exp_dir, 
-                param_pattern=pattern, 
-                col=col, 
-                title=metric, 
-                exp_label=label,
-                xlabel=xlabel, 
-                ylabel=False,
-            )
-            
+                algo_name = info.get('algo_name', '')
+                if algo_name:
+                    exp_label = algo_name + ' ' + label
+
+                plot_one_exp(
+                    exp_dir=exp_dir, 
+                    param_pattern=pattern, 
+                    seeds=info.get('seeds', None),
+                    col=col, 
+                    title=metric, 
+                    exp_label=exp_label,
+                    xlabel=xlabel, 
+                    ylabel=False,
+                )
         i += 1
 
     plt.suptitle(title)
 
+
+def test_compare_all_metrics_for_multi_experiments():
+    exp_dir = 'exp_results/SAPPO_Inter_30agents_v4(share_vf_5e6)[AIBOY]'
+
+    param_pattern_dict = get_param_patthern({
+        # 'start_seed': ['5000', '6000', '7000'],
+        'vf_share_layers': [['sh', 'sep'], ['True', 'False']],
+        # 'vf_share_layers': [['sh'], ['True']],
+    }, verbose=True) # {lable -> re pattern}
+
+
+    exps = {
+        exp_dir: dict(
+            algo_name='IPPO',
+            param_pattern_dict=param_pattern_dict,
+            seeds=6000,
+        ),
+    }
+
+    compare_all_metrics_for_multi_experiments(exps)
+    plt.show()
 
 
 
 
 if __name__ == "__main__":
 
-    baseline_dir = 'exp_results/IPPO_Intersection_8seeds_30agents_repeat2'
-    v0_dir = 'exp_results/SAPPO_Inter_30agents_v0'
-    v2_dir = 'exp_results/SAPPO_Inter_30agents_v2(better_attention)'
+    # baseline_dir = 'exp_results/IPPO_Intersection_8seeds_30agents_repeat2'
+    # v0_dir = 'exp_results/SAPPO_Inter_30agents_v0'
+    # v2_dir = 'exp_results/SAPPO_Inter_30agents_v2(better_attention)'
 
-    param_space = {
-        'agents': [['30a'], ['30']],
-    }
-    param_pattern_dict = get_param_patthern(param_space, verbose=False) # {lable -> re pattern}
+    # param_space = {
+    #     'agents': [['30a'], ['30']],
+    # }
+    # param_pattern_dict = get_param_patthern(param_space, verbose=False) # {lable -> re pattern}
 
 
 
-    exps = {
-        v0_dir: dict(
-            algo_name='IPPO', 
-            exp_dir=v0_dir, 
-            param_pattern=None, 
-            label='v0',
-        ),
-        v2_dir: dict(
-            algo_name='IPPO', 
-            exp_dir=v2_dir, 
-            param_pattern=None, 
-            label='v2',
-        ),
-        baseline_dir: dict(
-            algo_name='IPPO', 
-            exp_dir=baseline_dir, 
-            param_pattern=None, 
-            label='baseline',
-        ),
-    }
+    # exps = {
+    #     v0_dir: dict(
+    #         algo_name='IPPO', 
+    #         exp_dir=v0_dir, 
+    #         param_pattern=None, 
+    #         label='v0',
+    #     ),
+    #     v2_dir: dict(
+    #         algo_name='IPPO', 
+    #         exp_dir=v2_dir, 
+    #         param_pattern=None, 
+    #         label='v2',
+    #     ),
+    #     baseline_dir: dict(
+    #         algo_name='IPPO', 
+    #         exp_dir=baseline_dir, 
+    #         param_pattern=None, 
+    #         label='baseline',
+    #     ),
+    # }
 
-    compare_all_metrics_for_multi_experiments(exps)
+    # compare_all_metrics_for_multi_experiments(exps)
 
-    plt.show()
+
+    test_compare_all_metrics_for_multi_experiments()
+

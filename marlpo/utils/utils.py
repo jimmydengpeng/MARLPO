@@ -1,5 +1,4 @@
 import argparse, sys
-from marlpo.env.env_utils import get_abbr_scene
 
 
 def get_train_parser():
@@ -37,6 +36,18 @@ def get_args_only_if_test(algo_name, env_config, exp_des, scene, num_agents, tes
         num_rollout_workers = get_num_workers()
 
     return stop, exp_name, num_rollout_workers
+
+
+def get_abbr_scene(name: str):
+    scenes = {
+        "roundabout":   "Round",
+        "intersection": "Inter",
+        "tollgate":     "Tollg",
+        "bottleneck":   "Bottn",
+        "parkinglot":   "Parkl"
+    }
+    assert name in scenes
+    return scenes[name]
 
 
 def get_exp_name(algo_name, exp_des, scene, num_agents):

@@ -27,9 +27,10 @@ SCENE = "intersection" if not TEST else "intersection"
 seeds = [5000]
 # seeds = [8000, 9000, 10000, 11000, 12000]
 
-# NUM_AGENTS = [4, 8, 16, 30]
+NUM_AGENTS = [4, 8, 16, 30]
+# NUM_AGENTS = [8, 16, 30]
 # NUM_AGENTS = [30]
-NUM_AGENTS = [4]
+# NUM_AGENTS = [4]
 EXP_DES = "v5(svo)"
 
 if __name__ == "__main__":
@@ -79,12 +80,14 @@ if __name__ == "__main__":
         .multi_agent(
         )
         .training(
-            # train_batch_size=1024,
-            train_batch_size=512,
+            train_batch_size=1024,
+            # train_batch_size=512,
+            # train_batch_size=256,
             gamma=0.99,
             lr=3e-4,
-            # sgd_minibatch_size=512,
-            sgd_minibatch_size=128,
+            sgd_minibatch_size=512,
+            # sgd_minibatch_size=128,
+            # sgd_minibatch_size=64,
             num_sgd_iter=5,
             lambda_=0.95,
             model={

@@ -204,7 +204,8 @@ class SAPPOPolicy(PPOTorchPolicy):
                             # 如果idx为0则选择的是自己
                             if frequent_idx == 0:
                                 # 使用自己的奖励
-                                nei_r = sample_batch[SampleBatch.REWARDS][i]
+                                # nei_r = sample_batch[SampleBatch.REWARDS][i]
+                                nei_r = 0
                             else:
                                 nei_r = info[NEI_REWARDS][frequent_idx-1]
 
@@ -217,12 +218,12 @@ class SAPPOPolicy(PPOTorchPolicy):
                             has_neighbours.append(0)
 
 
-                nei_r = np.array(nei_rews).astype(np.float32)
+                nei_rewards = np.array(nei_rews).astype(np.float32)
                 # printPanel({'atn_matrix': atn_matrix, 'nei_r': nei_r})
 
                 # nei_r = nei_r * atn_matrix
 
-                sample_batch[NEI_REWARDS] = nei_r
+                sample_batch[NEI_REWARDS] = nei_rewards
 
                 sample_batch[HAS_NEIGHBOURS] = np.array(has_neighbours)
 
@@ -238,7 +239,7 @@ class SAPPOPolicy(PPOTorchPolicy):
 
 
                 old_r = sample_batch[SampleBatch.REWARDS]
-                new_r = np.cos(svo) * old_r + np.sin(svo) * nei_r
+                new_r = np.cos(svo) * old_r + np.sin(svo) * nei_rewards
 
                 # new_r = (1-sample_batch[HAS_NEIGHBOURS]) * (1-np.cos(svo)) * old_r + new_r
 
@@ -364,7 +365,6 @@ class SAPPOPolicy(PPOTorchPolicy):
         # msg_tr['advantage req'] = advantage.requires_grad # True
         # printPanel(msg2, raw_output=True)
 
-        # advantage = train_batch[Postprocessing.ADVANTAGES] 
 
         # msg['has_nei'] = train_batch[HAS_NEIGHBOURS][-5:]
         # msg['old_r'] = old_r[-5:]
@@ -413,6 +413,10 @@ class SAPPOPolicy(PPOTorchPolicy):
 
         curr_entropy = curr_action_dist.entropy()
         mean_entropy = reduce_mean_valid(curr_entropy)
+
+
+        # 不使用 actor loss 更新 svo
+        # advantage = train_batch[Postprocessing.ADVANTAGES] 
 
         surrogate_loss = torch.min(
             advantage * logp_ratio,

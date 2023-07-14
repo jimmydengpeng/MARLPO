@@ -5,7 +5,7 @@ from rich.panel import Panel
 # FLAG = False
 # if not FLAG:
 rich.get_console().width -= 30
-#     FLAG = True
+print(f'[red]({__file__}) rich console -= 30[/] [blue]{rich.get_console().width}[/]')
 
 import json
 import numbers
@@ -173,7 +173,6 @@ def dict_to_str(
         a_dict: Dict[str, ValueWrapper], 
         indent=2, 
         use_json=False, 
-        raw_tensor=False, 
         align=True,
     ):
     """Convert a dict to a string that translate every key-value pair and its
@@ -272,8 +271,8 @@ def printPanel(
     elif isinstance(msg, int):
         msg = str(msg)
     elif isinstance(msg, dict):
-        new_dict = process_value(msg)
-        msg = dict_to_str(new_dict, raw_tensor=raw_output, align=align)
+        new_dict = process_value(msg, raw_tensor=raw_output)
+        msg = dict_to_str(new_dict, align=align)
     else:
         print(f'[Warning] utils.py:printPanel -- msg with type {type(msg)}')
 

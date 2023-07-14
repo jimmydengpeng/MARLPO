@@ -207,6 +207,8 @@ class EgoAttention(BaseModule, Configurable):
         self.key_all = nn.Linear(self.config["feature_size"], self.config["feature_size"], bias=False)
         self.query_ego = nn.Linear(self.config["feature_size"], self.config["feature_size"], bias=False)
         self.attention_combine = nn.Linear(self.config["feature_size"], self.config["feature_size"], bias=False)
+        # added HERE!
+        self.onehot_attention = self.config["onehot_attention"]
 
     @classmethod
     def default_config(cls):
@@ -232,7 +234,8 @@ class EgoAttention(BaseModule, Configurable):
         if mask is not None:
             mask = mask.view((batch_size, 1, 1, n_entities)).repeat((1, self.config["heads"], 1, 1))
         value, attention_matrix = attention(query_ego, key_all, value_all, mask,
-                                            nn.Dropout(self.config["dropout_factor"]))
+                                            nn.Dropout(self.config["dropout_factor"]),
+                                            gumbel_softmax=self.onehot_attention) # added HERE!
         result = (self.attention_combine(value.reshape((batch_size, self.config["feature_size"]))) + ego.squeeze(1))/2
         return result, attention_matrix
 
@@ -324,7 +327,8 @@ class EgoAttentionNetwork(BaseModule, Configurable):
             "attention_layer": {
                 "type": "EgoAttention",
                 "feature_size": 128,
-                "heads": 4
+                "heads": 4,
+                "onehot_attention": False, # added HERE!
             },
             "output_layer": {
                 "type": "MultiLayerPerceptron",
@@ -340,9 +344,9 @@ class EgoAttentionNetwork(BaseModule, Configurable):
         '''
         ego, others, mask = self.split_input(x)
         ego, others = self.ego_embedding(ego), self.others_embedding(others)
-        ego_embedded_att, _ = self.forward_attention(ego, others, mask)
+        ego_embedded_att, attention_matrix = self.forward_attention(ego, others, mask)
         x = self.output_layer(ego_embedded_att)
-        return self.layer_norm(x + ego.squeeze(dim=1))
+        return self.layer_norm(x + ego.squeeze(dim=1)), attention_matrix
 
     def split_input(self, x, mask=None):
         # Dims: batch, entities, features
@@ -418,7 +422,7 @@ class AttentionNetwork(BaseModule, Configurable):
         return attention_matrix
 
 
-def attention(query, key, value, mask=None, dropout=None):
+def attention(query, key, value, mask=None, dropout=None, gumbel_softmax=False):
     """
         Compute a Scaled Dot Product Attention.
     :param query: size: batch, head, 1 (ego-entity), features
@@ -432,7 +436,10 @@ def attention(query, key, value, mask=None, dropout=None):
     scores = torch.matmul(query, key.transpose(-2, -1)) / np.sqrt(d_k)
     if mask is not None:
         scores = scores.masked_fill(mask, -1e9)
-    p_attn = F.softmax(scores, dim=-1)
+    if not gumbel_softmax: 
+        p_attn = F.softmax(scores, dim=-1)
+    else:
+        p_attn = F.gumbel_softmax(scores, tau=0.01, hard=True)
     if dropout is not None:
         p_attn = dropout(p_attn)
     output = torch.matmul(p_attn, value)

@@ -53,7 +53,8 @@ def train(
 
     config.debugging(
         seed=seed, 
-        log_level="DEBUG" if test_mode else "WARN"
+        # log_level="DEBUG" if test_mode else "WARN"
+        # log_level="DEBUG" if test_mode else "WARN"
     )
 
     tuner = tune.Tuner(

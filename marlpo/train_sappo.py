@@ -23,13 +23,14 @@ SCENE = "intersection" if not TEST else "intersection"
 
 # === Env Seeds ===
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-# seeds = [6000, 7000]
-# seeds = [5000]
-seeds = [8000, 9000, 10000, 11000, 12000]
+# seeds = [5000, 6000, 7000]
+seeds = [5000]
+# seeds = [8000, 9000, 10000, 11000, 12000]
 
 # NUM_AGENTS = [4, 8, 16, 30]
-NUM_AGENTS = [30]
-EXP_DES = "v4(share_vf_5e6)"
+# NUM_AGENTS = [30]
+NUM_AGENTS = [4]
+EXP_DES = "v5(svo)"
 
 if __name__ == "__main__":
     args = get_train_parser().parse_args()
@@ -49,14 +50,19 @@ if __name__ == "__main__":
         add_compact_state=True, # add BOTH ego- & nei- compact-state simultaneously
         add_nei_state=False,
         num_neighbours=4,
-        neighbours_distance=40,
+        neighbours_distance=10,
     )
 
     # if TEST
     stop, exp_name, num_rollout_workers = get_args_only_if_test(algo_name=ALGO_NAME, env_config=env_config, exp_des=EXP_DES, scene=SCENE, num_agents=NUM_AGENTS, test=TEST) # env_config will be modified
     
     stop = {"timesteps_total": 3e6}
-    # env_config['num_agents'] = 3
+    if args.num_workers:
+        num_rollout_workers = args.num_workers
+    if TEST:
+        # stop = {"timesteps_total": 3e6}
+        stop = {"training_iteration": 1}
+        env_config['num_agents'] = 30
 
 
     # === Algo Setting ===
@@ -70,11 +76,15 @@ if __name__ == "__main__":
             num_rollout_workers=num_rollout_workers,
         )
         .callbacks(MultiAgentDrivingCallbacks)
+        .multi_agent(
+        )
         .training(
-            train_batch_size=1024,
+            # train_batch_size=1024,
+            train_batch_size=512,
             gamma=0.99,
             lr=3e-4,
-            sgd_minibatch_size=512,
+            # sgd_minibatch_size=512,
+            sgd_minibatch_size=128,
             num_sgd_iter=5,
             lambda_=0.95,
             model={
@@ -83,6 +93,7 @@ if __name__ == "__main__":
                     # 'embedding_hiddens': [64, 64],
                     'attention_dim': 64,
                     "policy_head_hiddens": [64, 64],
+                    "onehot_attention": True,
                 },
                 # "vf_share_layers": True,
                 "vf_share_layers": True, 
@@ -91,6 +102,8 @@ if __name__ == "__main__":
         .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
         .update_from_dict(dict(
             # == Common ==
+            # old_value_loss=False,
+            old_value_loss=True,
             num_neighbours=4,
             # == CC ==
             use_central_critic=False,

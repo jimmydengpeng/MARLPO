@@ -35,7 +35,11 @@ LIDAR = 'lidar'
 COMPACT_EGO_STATE = 'compact_ego_state'
 COMPACT_NEI_STATE = 'compact_nei_state'
 NEI_STATE = 'nei_state'
-
+NEI_REWARDS = "nei_rewards"
+SVO = 'svo'
+ORIGINAL_REWARDS = "original_rewards"
+HAS_NEIGHBOURS = 'has_neighbours'
+ATTENTION_MAXTRIX = 'attention_maxtrix'
 
 ATTENTION_HIDDEN_DIM = 64
 ATTENTION_HEADS = 4
@@ -75,9 +79,9 @@ class SAModel(TorchModelV2, nn.Module):
             self.obs_shape = self.custom_model_config['env_cls'].get_obs_shape(self.custom_model_config['env_config'])
 
             self.attention_backbone = self._get_attention_backbone()
-            print('==='*20)
-            print(self.attention_backbone)
-            print('==='*20)
+            # print('==='*20)
+            # print(self.attention_backbone)
+            # print('==='*20)
             self.policy_head = self.get_policy_head(num_outputs, model_config)
             # nn.init.orthogonal_(self.policy_head.weight.data, gain=0.01)
         else:
@@ -87,14 +91,27 @@ class SAModel(TorchModelV2, nn.Module):
         self._init_critic(model_config)
 
         # svo net
-        self.svo_layer = self.get_policy_head(num_outputs=1, model_config=model_config)
+        # self.svo_layer = self.get_policy_head(num_outputs=1, model_config=model_config, last_activation='relu', initializer=nn.init.zeros_)
+        self.svo_head = self.get_policy_head(num_outputs=1, model_config=model_config, last_activation='tanh', initializer=None)
+        # nn.init.zeros_(self.svo_layer.weight)
+        print('==='*20)
+        print(self.svo_head)
+        print('==='*20)
 
         # Holds the current "base" output (before logits layer).
         self._features = None
         # Holds the last input, in case value branch is separate.
         self._last_obs_in = None
         # 
-        self.last_svo = None
+        # self.last_svo = None
+
+        self.last_attention_matrix = None
+
+        # == debug ==
+        self.last_policy_params = self.policy_head.state_dict().copy()
+        self.last_value_params = None
+        self.last_svo_params = None
+
 
         # TODO === Fix WARNING catalog.py:617 -- Custom ModelV2 should accept all custom options as **kwargs, instead of expecting them in config['custom_model_config']! === 
 
@@ -106,6 +123,12 @@ class SAModel(TorchModelV2, nn.Module):
         self.view_requirements[SampleBatch.ACTIONS] = ViewRequirement(
             space=action_space
         )
+
+        self.view_requirements[SVO] = ViewRequirement()
+        self.view_requirements[NEI_REWARDS] = ViewRequirement()
+        self.view_requirements[ORIGINAL_REWARDS] = ViewRequirement(data_col=SampleBatch.REWARDS, shift=0)
+        self.view_requirements[HAS_NEIGHBOURS] = ViewRequirement()
+        self.view_requirements[ATTENTION_MAXTRIX] = ViewRequirement()
         
 
     def _get_fcn_actor(self, model_config, num_outputs):
@@ -214,19 +237,21 @@ class SAModel(TorchModelV2, nn.Module):
                 "type": "EgoAttention",
                 "feature_size": 64,
                 "heads": ATTENTION_HEADS,
+                "onehot_attention": self.custom_model_config.get('onehot_attention', False), # added HERE!
             },
             "output_layer": {
                 "type": "MultiLayerPerceptron",
                 "layers": [64, 64],
-                "reshape": False
-        }}
+                "reshape": False,
+            },
+        }
 
         encoder = EgoAttentionNetwork(atn_net_config)
 
         return encoder
 
 
-    def get_policy_head(self, num_outputs, model_config):
+    def get_policy_head(self, num_outputs, model_config, last_activation=None, initializer=None):
         ''' 用于从之前网络中提取到的特征向量(可能再和原始观测输入concat)得到动作输出
         '''
         input_dim = self.hidden_dim + RELATIVE_OBS_DIM
@@ -238,22 +263,24 @@ class SAModel(TorchModelV2, nn.Module):
         prev_layer_size = input_dim
 
         # Create layers 0 to second-last.
+        _initializer_1 = initializer if initializer else normc_initializer(1.0)
         for size in hiddens:
             layers.append(
                 SlimFC(
                     in_size=prev_layer_size,
                     out_size=size,
-                    initializer=normc_initializer(1.0),
+                    initializer=_initializer_1,
                     activation_fn=activation
             ))
             prev_layer_size = size
-            
+
+        _initializer_2 = initializer if initializer else normc_initializer(0.01)
         layers.append(
             SlimFC(
                 in_size=prev_layer_size,
                 out_size=num_outputs,
-                initializer=normc_initializer(0.01),
-                activation_fn=None
+                initializer=_initializer_2,
+                activation_fn=last_activation,
             ))
         
         return nn.Sequential(*layers)
@@ -373,8 +400,13 @@ class SAModel(TorchModelV2, nn.Module):
         '''
         msg = {}
         msg['input_dict'] = input_dict
+        msg['*'] = '*'
+        msg['is_training'] = input_dict.is_training
+        msg['input_dict type'] = type(input_dict)
         msg['use_attention'] = self.use_attention
         msg['obs type'] = type(input_dict['obs']).__name__
+        # msg['obs requires_grad'] = input_dict["obs"].requires_grad
+        msg['obs_flat requires_grad'] = input_dict["obs_flat"].requires_grad
 
         
 
@@ -382,14 +414,16 @@ class SAModel(TorchModelV2, nn.Module):
         if self.use_attention:
             obs = input_dict["obs"] # Dict, str -> (BatchSize, *)
             assert isinstance(obs, dict)
+
+
             self._last_obs_in = o = self.get_relative_obs(obs)
 
             ego_x = obs[COMPACT_EGO_STATE].unsqueeze(-2) # B x 1 x D_absolute_state_dim
             nei_x = obs[COMPACT_NEI_STATE] # B x num_nei x D_absolute_state_dim
             x = torch.concat((ego_x, nei_x), dim=-2)
 
-
-            x = self.attention_backbone(x) # B x H_hidden
+            x, attention_matrix = self.attention_backbone(x) # B x H_hidden
+            self.last_attention_matrix = attention_matrix
             msg['after attention'] = x
             # x = x.squeeze(dim=-2)
             # msg['after squeeze'] = x
@@ -405,7 +439,7 @@ class SAModel(TorchModelV2, nn.Module):
             logits = self.policy_head(x)
             msg['after policy_head'] = logits
 
-            self.last_svo = self.svo_layer(x)
+            # self.last_svo = self.svo_layer(x)
 
         # mlp actor
         else: 
@@ -437,6 +471,73 @@ class SAModel(TorchModelV2, nn.Module):
         else:
             raise NotImplementedError
 
+
+    def svo_function(self) -> TensorType:
+        assert self._features is not None, "must call forward() first"
+
+        # 1. 允许更新svo时继续往后反传
+        features = self._features
+        # or 2. 截断
+        # features = self._features.detach()
+
+
+        x = torch.concat((self._last_obs_in, features), -1) # B x (D_hidden + D_obs)
+        x = self.svo_head(x).squeeze(1)
+        # torch.clamp(x, 0, 1) # for relu
+        return x
+            
+
+    def check_head_params_updated(self, head_name: str):
+
+        def check_parameters_updated(model: nn.modules):
+            for param in model.parameters():
+                if param.requires_grad and param.grad is not None:
+                    return True, param.grad
+            return False, None
+
+        assert head_name in ['svo', 'value', 'policy']
+        layers = getattr(self, f'{head_name}_head')
+        last_params = getattr(self, f'last_{head_name}_params')
+
+        res, grad = check_parameters_updated(layers)
+
+        # res, diff = self._check_params_equal(last_params, layers.state_dict())
+        # res = not res
+        printPanel(
+            {'params updated': res,
+             'params slice': list(layers.parameters())[-2][-1][-5:],
+             'params grad': grad,
+             'grad mean/std': None if grad == None else torch.std_mean(grad),
+            }, 
+            title=f'check_{head_name}_params'
+        )
+        # setattr(self, f'last_{head_name}_params', list(layers.parameters()).copy())
+        
+
+    def _check_params_equal(self, p1, p2):
+        if p1 == None or p2 == None:
+            print('>>> _check_params_equal, None p1 or p2')
+            return False, None
+        # for m1, m2 in zip(p1, p2):
+            # if not torch.allclose(m1.data, m2.data):
+            # diff = torch.sum(torch.pow((m1.data - m2.data), 2.0))
+            # if m1.data != m2.data:
+        def state_dict_equal(dict1, dict2):
+            if len(dict1) != len(dict2):
+                return False
+            for key, value in dict1.items():
+                print('>>>', key, value)
+                if key not in dict2 or not torch.allclose(dict2[key], value, rtol=1e-6):
+                    return False
+            return True
+        if not state_dict_equal(p1, p2):
+            # diff = torch.sum(torch.pow((p1.data - p2.data), 2.0))
+            return False, 'diff'
+        else: 
+            return True, None
+        # return False, diff
+            # return False, diff
+        # return True, None
 
     # @override(TorchModelV2)
     # def value_function(self) -> TensorType:

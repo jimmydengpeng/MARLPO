@@ -380,6 +380,67 @@ def test_compare_all_metrics_for_multi_experiments():
 
 
 
+def _sa_exps():
+    baseline_dir = 'exp_results/IPPO_Intersection_8seeds_30agents_repeat2'
+    ccppo_dir = 'exp_results/CCPPO_Intersection_8seeds_30agents'
+    v0_dir = 'exp_results/SAPPO_Inter_30agents_v0'
+    v1_dir = 'exp_results/SAPPO_Inter_30agents_v1(reduce_head_input)'
+    v2_dir = 'exp_results/SAPPO_Inter_30agents_v2(better_attention)'
+    v3_dir = 'exp_results/SAPPO_Inter_30agents_v3(better_attention_layer_norm)'
+    v4_dir = 'exp_results/SAPPO_Inter_30agents_v4(share_vf)'
+    v4_dir_5e6 = 'exp_results/SAPPO_Inter_30agents_v4(share_vf_5e6)'
+
+
+    param_pattern_dict = get_param_patthern({
+        # 'start_seed': ['5000', '6000', '7000'],
+        'vf_share_layers': [['sh', 'sep'], ['True', 'False']],
+        # 'vf_share_layers': [['sh'], ['True']],
+    }, verbose=False) # {lable -> re pattern}
+
+
+    param_pattern_dict_ccppo = get_param_patthern({
+        'fuse_mode': [['concat', 'mf'], ['concat', 'mf']],
+    })
+
+    exps = {
+        v0_dir: dict(
+            algo_name='SAPPO', 
+            label='v0',
+        ),
+        v3_dir: dict(
+            algo_name='SAPPO', 
+            label='v3 (upd atn & ln)',
+        ),
+        v4_dir: dict(
+            algo_name='SAPPO', 
+            label='v4 (sh vf)',
+        ),
+        v4_dir_5e6: dict(
+            algo_name='SAPPO', 
+            label='v4 (sh vf)',
+            param_pattern_dict=param_pattern_dict,
+            # sees=[8000]
+        ),
+
+        ccppo_dir: dict(
+            algo_name='CCPPO', 
+            param_pattern_dict=param_pattern_dict_ccppo,
+            # seeds=[5000, 6000, 7000, 8000],
+            # seeds=[5000],
+            # label='baseline',
+        ),
+
+        baseline_dir: dict(
+            algo_name='IPPO', 
+            seeds=[5000, 6000, 7000, 8000],
+            # seeds=[5000],
+            label='baseline',
+        ),
+    }
+
+    compare_all_metrics_for_multi_experiments(exps)
+    plt.show()
+
 
 if __name__ == "__main__":
 
@@ -418,5 +479,7 @@ if __name__ == "__main__":
     # compare_all_metrics_for_multi_experiments(exps)
 
 
-    test_compare_all_metrics_for_multi_experiments()
+    # test_compare_all_metrics_for_multi_experiments()
+
+    _sa_exps()
 

@@ -6,6 +6,7 @@ def get_train_parser():
     parser.add_argument("--exp-name", type=str, default="")
     parser.add_argument("--num-gpus", type=int, default=0)
     parser.add_argument("--num-seeds", type=int, default=1)
+    parser.add_argument("--num-workers", type=int,)
     parser.add_argument("--num-cpus-per-worker", type=float, default=1.0)
     parser.add_argument("--num-gpus-per-trial", type=float, default=0.25)
     parser.add_argument("--test", action="store_true")
@@ -26,7 +27,7 @@ def get_num_agents_str(num_agents):
 def get_args_only_if_test(algo_name, env_config, exp_des, scene, num_agents, test: bool):
     if test:
         env_config["start_seed"] = 5000
-        env_config["num_agents"] = 4
+        env_config["num_agents"] = 2
         stop = {"training_iteration": 1}
         exp_name = "TEST"
         num_rollout_workers = 0

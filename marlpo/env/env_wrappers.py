@@ -47,6 +47,7 @@ LIDAR = 'lidar'
 COMPACT_EGO_STATE = 'compact_ego_state'
 COMPACT_NEI_STATE = 'compact_nei_state'
 NEI_STATE = 'nei_state'
+NEI_REWARDS = "nei_rewards"
 
 
 ''' obs:
@@ -85,7 +86,7 @@ COMPACT_STATE_DIM = 8 # x, y, vx, vy, heading, speed, steering, yaw_rate
 # TODO: OBS Structure dict: {EGO: dim, EGO_NAVI_0, EGO_NAVI_1, NEI_EGO ..., LIDAR}
 # can also be passed to custom model's config
 
-WINDOW_SIZE = 150
+WINDOW_SIZE = 151
 NUM_NEIGHBOURS = 4
 
 
@@ -241,14 +242,26 @@ class CCEnv:
             return self.get_box_obs_space(self.obs_dim, old_obs_space.dtype)
 
 
-    def _add_neighbour_info(self, agents, infos):
+    def _add_neighbour_info(self, agents, infos, rewards=None):
         for agent in agents:
+            # agent_info = infos[agent]
             infos[agent]["agent_id"] = agent
             infos[agent]["all_agents"] = list(agents)
             neighbours, nei_distances = self._find_in_range(agent, 
                                             self.config["neighbours_distance"])
             infos[agent]["neighbours"] = neighbours
             infos[agent]["neighbours_distance"] = nei_distances
+
+            if rewards:
+                nei_rewards = [rewards[nei] for nei in neighbours]
+                infos[agent][NEI_REWARDS] = nei_rewards
+                # if nei_rewards:
+                    # agent_info["nei_rewards"] = sum(nei_rewards) / len(nei_rewards)
+                # else:
+                #     i[agent_name]["nei_rewards"] = 0.0  # Do not provide neighbour rewards if no neighbour
+            else:
+                infos[agent][NEI_REWARDS] = []
+
 
     def _add_neighbour_state(self, obs, infos):
         new_o = {}
@@ -391,13 +404,13 @@ class CCEnv:
             return self.flatten_obs_dict(obs_dict)
 
 
-    def process_infos(self, agents, infos):
+    def process_infos(self, agents, infos, rewards=None):
         self._update_distance_map()
-        self._add_neighbour_info(agents, infos)
+        self._add_neighbour_info(agents, infos, rewards)
         self._last_info.update(infos)
 
 
-    def proccess_infos_obs(self, infos, old_obs):
+    def proccess_infos_obs(self, infos, old_obs, rewards=None):
         ''' called every time original env returns obs
         Args:
             i: all agents' infos that will be added nei-infos
@@ -406,7 +419,7 @@ class CCEnv:
         agents = old_obs.keys()
 
         # add neighbour infos
-        self.process_infos(agents, infos)
+        self.process_infos(agents, infos, rewards)
 
         # add obs and/or change type to dict
         new_obs = self.process_obs(old_obs)
@@ -430,7 +443,7 @@ class CCEnv:
 
     def step(self, actions):
         obs, r, d, i = super(CCEnv, self).step(actions)
-        obs = self.proccess_infos_obs(i, obs)
+        obs = self.proccess_infos_obs(i, obs, rewards=r)
         return obs, r, d, i
 
 
@@ -944,7 +957,10 @@ if __name__ == "__main__":
     # exit()
 
     env = env_cls(config)
-    o, i = env.reset()
+    obs, infos = env.reset()
+
+    print(obs)
+    print(infos)
 
     # print(env.config['window_size'])
 
@@ -966,46 +982,36 @@ if __name__ == "__main__":
     '''lcf env'''
     # env_cls = get_lcf_env(MultiAgentIntersectionEnv)
 
-
-    # print(dir(env))
-    min_heading = 0
-    max_heading = 0
     for i in range(2000):
 
         if RANDOM_ACTION:
             actions = {}
             for v in env.vehicles:
                 actions[v] = env.action_space.sample()
-            o, r, tm, tc, info = env.step(actions)
+            o, r, tm, tc, infos = env.step(actions)
         else:
             obs, rew, tm, tc, infos = env.step({agent_id: [0, 0] for agent_id in env.vehicles.keys()})
 
         env.render(mode="top_down", file_size=(800,800))
-        for agent, o in obs.items():
-            msg = {}
-            if isinstance(o, dict):
-                msg[COMPACT_EGO_STATE] = o[COMPACT_EGO_STATE]
-                msg['-'] = '-'
-                msg[COMPACT_NEI_STATE] = o[COMPACT_NEI_STATE]
-                # msg[EGO_STATE] = o[EGO_STATE]
-                msg['*'] = '*'
+
+        # printPanel(infos)
+        print(obs)
+        print(infos)
+        exit()
+        # for agent, o in obs.items():
+        #     msg = {}
                 
-            # named_obs = interpre_obs(o[k])
-            info = infos[agent]
-            vehicle: BaseVehicle = env.vehicles_including_just_terminated[agent]
-            if vehicle:
-                v = vehicle.velocity
-                color = vehicle.panda_color
-                info['agent_id'] = colorize(info['agent_id'], sns_rgb_to_rich_hex_str(color))
-                # msg['OBS'] = named_obs
-                # msg['-'] = '-'
-                msg['INFO'] = info
-                msg['--'] = '-'
-                heading = int(vehicle.heading_theta / math.pi * 180)
-                msg['heading'] = heading
-                printPanel(msg, title='OBS')
-                min_heading = min(min_heading, heading)
-                max_heading = max(max_heading, heading)
+        #     info = infos[agent]
+            # vehicle: BaseVehicle = env.vehicles_including_just_terminated[agent]
+            # if vehicle:
+            #     v = vehicle.velocity
+            #     color = vehicle.panda_color
+            #     info['agent_id'] = colorize(info['agent_id'], sns_rgb_to_rich_hex_str(color))
+            #     # msg['OBS'] = named_obs
+            #     # msg['-'] = '-'
+            #     msg['INFO'] = info
+            #     heading = int(vehicle.heading_theta / math.pi * 180)
+            #     printPanel(msg, title='OBS')
         # input() 
 
         if tm['__all__']:
@@ -1014,7 +1020,5 @@ if __name__ == "__main__":
             print('env.episode_step:', env.episode_step)
             env.reset()
             # break
-        
-    print(max_heading, min_heading)
 
     env.close()

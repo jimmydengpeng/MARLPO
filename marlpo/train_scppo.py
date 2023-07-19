@@ -31,7 +31,7 @@ seeds = [5000]
 # NUM_AGENTS = [8, 16, 30]
 # NUM_AGENTS = [30]
 NUM_AGENTS = [4]
-EXP_DES = "(saco)_v0"
+EXP_DES = "(saco)"
 
 if __name__ == "__main__":
     args = get_train_parser().parse_args()
@@ -102,6 +102,8 @@ if __name__ == "__main__":
                     svo_head_hiddens=[64, 64],
                     critic_head_hiddens=[64, 64],
                     onehot_attention=True,
+                    svo_concat_obs=True,
+                    critic_concat_svo=False,
                     # onehot_attention=tune.grid_search([True, False]),
                 ),
                 free_log_std=True,
@@ -109,9 +111,18 @@ if __name__ == "__main__":
         )
         .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
         .update_from_dict(dict(
+            # == SaCo == 
+            nei_rewards_mode=tune.grid_search([
+                'mean_nei_rewards',           # ─╮ 
+                'max_nei_rewards',            #  │
+                'nearest_nei_reward',         #  │──> Choose 1 alternatively
+                'attentive_one_nei_reward',   #  │
+                # 'attentive_all_nei_reward',   # ─╯
+            ]),
+            
             # == Common ==
-            # old_value_loss=False,
             old_value_loss=True,
+            # old_value_loss=True,
             num_neighbours=4,
             # == CC ==
             use_central_critic=False,

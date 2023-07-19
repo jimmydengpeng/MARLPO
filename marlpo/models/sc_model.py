@@ -95,16 +95,18 @@ class SCModel(TorchModelV2, nn.Module):
 
         # == critic ==
         # self.init_critic(model_config)
+        critic_head_inputs = self.hidden_dim + RELATIVE_OBS_DIM + (1 if self.custom_model_config['critic_concat_svo'] else 0)
         self.critic_head = self.get_head(head_name='critic',
-                                         num_inputs=self.hidden_dim + RELATIVE_OBS_DIM,
+                                         num_inputs=critic_head_inputs,
                                          num_outputs=1, 
                                          model_config=model_config,
                                          activation='tanh',
                                          initializer=orthogonal_initializer(gain=1.0))
 
         # svo net
+        svo_head_inputs = self.hidden_dim + (RELATIVE_OBS_DIM if self.custom_model_config['svo_concat_obs'] else 0)
         self.svo_head = self.get_head(head_name='svo',
-                                      num_inputs=self.hidden_dim + RELATIVE_OBS_DIM,
+                                      num_inputs=svo_head_inputs,
                                       num_outputs=1, 
                                       model_config=model_config,
                                       activation='tanh',
@@ -115,7 +117,7 @@ class SCModel(TorchModelV2, nn.Module):
         # Holds the last input, in case value branch is separate.
         self._last_rel_obs_in = None
         # 
-        # self.last_svo = None
+        self.last_svo = None
 
         self.last_attention_matrix = None
 
@@ -452,6 +454,8 @@ class SCModel(TorchModelV2, nn.Module):
             # x = x.squeeze(dim=-2)
             # msg['after squeeze'] = x
             self._features = x
+
+            self.last_svo = self._svo_function()
             
             # o = torch.concat((
             #     obs[EGO_STATE], 
@@ -484,23 +488,32 @@ class SCModel(TorchModelV2, nn.Module):
     def value_function(self) -> TensorType:
         if not self.use_centralized_critic:
             assert self._features is not None, "must call forward() first"
-            x = torch.concat((self._last_rel_obs_in, self._features), -1) # B x (D_hidden + D_obs)
+            assert self.last_svo is not None
+            if self.custom_model_config['critic_concat_svo']:
+                x = torch.concat((self._last_rel_obs_in, self._features, self.last_svo), -1) # B x (D_hidden + D_obs)
+            else:
+                x = torch.concat((self._last_rel_obs_in, self._features), -1) # B x (D_hidden + D_obs)
             out = self.critic_head(x).squeeze(1)
             return out
         else:
             raise NotImplementedError
 
+    
 
     def svo_function(self) -> TensorType:
+        assert self.last_svo is not None
+        return self.last_svo.squeeze(1)
+
+    def _svo_function(self) -> TensorType:
         assert self._features is not None, "must call forward() first"
 
         # 1. 允许更新svo时继续往后反传
         x = self._features
         # or 2. 截断
         # features = self._features.detach()
-
-        x = torch.concat((self._last_rel_obs_in, x), -1) # B x (D_hidden + D_obs)
-        x = self.svo_head(x).squeeze(1)
+        if self.custom_model_config['svo_concat_obs']:
+            x = torch.concat((self._last_rel_obs_in, x), -1) # B x (D_hidden + D_obs)
+        x = self.svo_head(x)
         # torch.clamp(x, 0, 1) # for relu
         return x
             

@@ -20,13 +20,12 @@ SCENE = "intersection" if not TEST else "intersection"
 
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
 # seeds = [5000, 6000, 7000]
-seeds = [7000]
+seeds = [5000]
 
 # NUM_AGENTS = [4, 8, 16, 30]
-NUM_AGENTS = [30]
+NUM_AGENTS = [4]
 
-EXP_DES = "(compact-state)"
-# EXP_DES = "16a_nei_state"
+EXP_DES = "(obs=131)"
 
 
 if __name__ == "__main__":
@@ -47,16 +46,24 @@ if __name__ == "__main__":
             # lidar=dict(num_lasers=tune.grid_search([0]), distance=40, num_others=0),
         ),
         # == neighbour config ==
-        use_dict_obs=False,
+        use_dict_obs=True,
         add_compact_state=True, # add BOTH ego- & nei- compact-state simultaneously
         add_nei_state=False,
-        num_neighbours=tune.grid_search([1, 4]),
-        neighbours_distance=20,
+        num_neighbours=4,
+        neighbours_distance=10,
         # neighbours_distance=tune.grid_search([10, 20, 30]),
     )
 
     # if TEST
     stop, exp_name, num_rollout_workers = get_args_only_if_test(algo_name=ALGO_NAME, env_config=env_config, exp_des=EXP_DES, scene=SCENE, num_agents=NUM_AGENTS, test=TEST)
+
+    stop = {"timesteps_total": 3e6}
+    if args.num_workers:
+        num_rollout_workers = args.num_workers
+    if TEST:
+        # stop = {"timesteps_total": 3e6}
+        stop = {"training_iteration": 1}
+        # env_config['num_agents'] = 30
   
 
     # === Algo Setting ===

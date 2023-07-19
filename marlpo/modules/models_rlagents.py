@@ -235,7 +235,7 @@ class EgoAttention(BaseModule, Configurable):
             mask = mask.view((batch_size, 1, 1, n_entities)).repeat((1, self.config["heads"], 1, 1))
         value, attention_matrix = attention(query_ego, key_all, value_all, mask,
                                             nn.Dropout(self.config["dropout_factor"]),
-                                            gumbel_softmax=self.onehot_attention) # added HERE!
+                                            gumbel_softmax=self.onehot_attention) # NOTE added HERE!
         result = (self.attention_combine(value.reshape((batch_size, self.config["feature_size"]))) + ego.squeeze(1))/2
         return result, attention_matrix
 
@@ -300,7 +300,7 @@ class EgoAttentionNetwork(BaseModule, Configurable):
         self.attention_layer = EgoAttention(self.config["attention_layer"])
         self.output_layer = model_factory(self.config["output_layer"])
 
-        # === . layer_norm ===
+        # === NOTE layer_norm ===
         self.layer_norm = nn.LayerNorm(64)
 
     @classmethod

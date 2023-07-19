@@ -17,17 +17,18 @@ rich.get_console().width += 30
 
 # 设置需要的列：
 # x = 'num_env_steps_trained'
-x = 'timesteps_total'
-succ = 'SuccessRate'
-crash = 'CrashRate'
-out = 'OutRate'
-maxstep = 'MaxStepRate'
-# reward = 'Reward' #TODO
-all_col = [x, succ, crash, out, maxstep]
-succ_col = [x, succ]
-crash_col = [x, crash]
-out_col = [x, out]
-maxstep_col = [x, maxstep]
+X = 'timesteps_total'
+SUCC_RATE = 'SuccessRate'
+CRASH_RATE = 'CrashRate'
+OUT_RATE = 'OutRate'
+MAXSTEP_RATE = 'MaxStepRate'
+REWARD_MEAN = 'episode_reward_mean' #TODO
+all_col = [X, SUCC_RATE, CRASH_RATE, OUT_RATE, MAXSTEP_RATE]
+succ_col = [X, SUCC_RATE]
+crash_col = [X, CRASH_RATE]
+out_col = [X, OUT_RATE]
+maxstep_col = [X, MAXSTEP_RATE]
+reward_mean_col = [X, REWARD_MEAN]
 
 all_metrics = {
     'succ': succ_col, 
@@ -237,7 +238,7 @@ def plot_one_exp(
     else:
         return
 
-    plot_mean_std(data, x, col, title=title, lable=exp_label, xlabel=xlabel, ylabel=ylabel)
+    plot_mean_std(data, X, col, title=title, lable=exp_label, xlabel=xlabel, ylabel=ylabel)
 
 
 def compare_all_metrics(exp_dirs: Dict[str, Union[str, Tuple[str, str]]]):
@@ -443,43 +444,15 @@ def _sa_exps():
 
 
 if __name__ == "__main__":
+    pass
 
     # baseline_dir = 'exp_results/IPPO_Intersection_8seeds_30agents_repeat2'
-    # v0_dir = 'exp_results/SAPPO_Inter_30agents_v0'
-    # v2_dir = 'exp_results/SAPPO_Inter_30agents_v2(better_attention)'
-
-    # param_space = {
-    #     'agents': [['30a'], ['30']],
-    # }
-    # param_pattern_dict = get_param_patthern(param_space, verbose=False) # {lable -> re pattern}
-
-
-
-    # exps = {
-    #     v0_dir: dict(
-    #         algo_name='IPPO', 
-    #         exp_dir=v0_dir, 
-    #         param_pattern=None, 
-    #         label='v0',
-    #     ),
-    #     v2_dir: dict(
-    #         algo_name='IPPO', 
-    #         exp_dir=v2_dir, 
-    #         param_pattern=None, 
-    #         label='v2',
-    #     ),
-    #     baseline_dir: dict(
-    #         algo_name='IPPO', 
-    #         exp_dir=baseline_dir, 
-    #         param_pattern=None, 
-    #         label='baseline',
-    #     ),
-    # }
 
     # compare_all_metrics_for_multi_experiments(exps)
+    # plt.show()
 
 
     # test_compare_all_metrics_for_multi_experiments()
 
-    _sa_exps()
+    # _sa_exps()
 

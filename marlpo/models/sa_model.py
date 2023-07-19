@@ -14,7 +14,7 @@ from ray.rllib.utils.typing import Dict, TensorType, List, Tuple, ModelConfigDic
 
 from marlpo.modules import SAEncoder
 from modules.models_rlagents import EgoAttentionNetwork
-from marlpo.utils import inspect, printPanel
+from utils.debug import inspect, printPanel
 
 torch, nn = try_import_torch()
 
@@ -45,7 +45,6 @@ ATTENTION_HIDDEN_DIM = 64
 ATTENTION_HEADS = 4
 
 RELATIVE_OBS_DIM = 91
-POLICY_HEAD_ACTIVATION = 'relu'
 
 class SAModel(TorchModelV2, nn.Module):
 
@@ -65,6 +64,10 @@ class SAModel(TorchModelV2, nn.Module):
         # == common attr ==
         self.custom_model_config = model_config['custom_model_config']
         self.obs_dim = int(np.product(self.obs_space.shape))
+        self.free_log_std = model_config.get("free_log_std")
+        if self.free_log_std:
+            assert num_outputs % 2 == 0, ("num_outputs must be divisible by two", num_outputs)
+            num_outputs = num_outputs // 2
 
         # == attention mudule attr ==
         self.use_attention = self.custom_model_config.get("use_attention", False)
@@ -79,24 +82,27 @@ class SAModel(TorchModelV2, nn.Module):
             self.obs_shape = self.custom_model_config['env_cls'].get_obs_shape(self.custom_model_config['env_config'])
 
             self.attention_backbone = self._get_attention_backbone()
-            # print('==='*20)
-            # print(self.attention_backbone)
-            # print('==='*20)
-            self.policy_head = self.get_policy_head(num_outputs, model_config)
-            # nn.init.orthogonal_(self.policy_head.weight.data, gain=0.01)
+
+            self.policy_head = self.get_policy_head(num_outputs=num_outputs, 
+                                                    model_config=model_config,
+                                                    activation='tanh',
+                                                    initializer=orthogonal_initializer(gain=1.0),
+                                                    last_initializer=orthogonal_initializer(gain=0.1))
         else:
-            self.actor = self._get_fcn_actor(model_config, num_outputs) # TODO 让actor Critic共享中间的特征向量
+            self.actor = self.get_fcn_actor(model_config, num_outputs)
 
         # == critic ==
         self._init_critic(model_config)
 
         # svo net
         # self.svo_layer = self.get_policy_head(num_outputs=1, model_config=model_config, last_activation='relu', initializer=nn.init.zeros_)
-        self.svo_head = self.get_policy_head(num_outputs=1, model_config=model_config, last_activation='tanh', initializer=None)
+        # self.svo_head = self.get_policy_head(num_outputs=1, model_config=model_config, last_activation='tanh', initializer=None)
+        self.svo_head = self.get_svo_head(num_outputs=1, 
+                                          model_config=model_config,
+                                          activation='tanh',
+                                          initializer=orthogonal_initializer(gain=1.0))
         # nn.init.zeros_(self.svo_layer.weight)
-        print('==='*20)
-        print(self.svo_head)
-        print('==='*20)
+
 
         # Holds the current "base" output (before logits layer).
         self._features = None
@@ -107,10 +113,6 @@ class SAModel(TorchModelV2, nn.Module):
 
         self.last_attention_matrix = None
 
-        # == debug ==
-        self.last_policy_params = self.policy_head.state_dict().copy()
-        self.last_value_params = None
-        self.last_svo_params = None
 
 
         # TODO === Fix WARNING catalog.py:617 -- Custom ModelV2 should accept all custom options as **kwargs, instead of expecting them in config['custom_model_config']! === 
@@ -131,7 +133,7 @@ class SAModel(TorchModelV2, nn.Module):
         self.view_requirements[ATTENTION_MAXTRIX] = ViewRequirement()
         
 
-    def _get_fcn_actor(self, model_config, num_outputs):
+    def get_fcn_actor(self, model_config, num_outputs):
         hiddens = list(model_config.get("fcnet_hiddens", [])) + list(model_config.get("post_fcnet_hiddens", []))
         activation = model_config.get("fcnet_activation")
         if not model_config.get("fcnet_hiddens", []):
@@ -147,7 +149,7 @@ class SAModel(TorchModelV2, nn.Module):
             num_outputs = num_outputs // 2
 
         layers = []
-        self._logits = None
+        # self._logits = None
 
         prev_layer_size = int(np.product(self.obs_space.shape)) 
 
@@ -201,7 +203,8 @@ class SAModel(TorchModelV2, nn.Module):
                 self.num_outputs = ([int(np.product(self.obs_space.shape))] + hiddens[-1:])[-1]
 
         # Layer to add the log std vars to the state-dependent means.
-        if hasattr(self, 'free_log_std') and self.free_log_std and self._logits:
+        # if hasattr(self, 'free_log_std') and self.free_log_std and self._logits:
+        if hasattr(self, 'free_log_std') and self.free_log_std: 
             self._append_free_log_std = AppendBiasLayer(num_outputs)
         
         return nn.Sequential(*layers)
@@ -251,40 +254,85 @@ class SAModel(TorchModelV2, nn.Module):
         return encoder
 
 
-    def get_policy_head(self, num_outputs, model_config, last_activation=None, initializer=None):
-        ''' 用于从之前网络中提取到的特征向量(可能再和原始观测输入concat)得到动作输出
-        '''
+    def get_policy_head(
+        self, 
+        num_outputs, 
+        model_config, 
+        activation=None, 
+        initializer=None,
+        last_initializer=None,
+    ):
         input_dim = self.hidden_dim + RELATIVE_OBS_DIM
-        mlp_hiddens = list(model_config.get("fcnet_hiddens", [])) + list(model_config.get("post_fcnet_hiddens", []))
-        hiddens = self.custom_model_config.get('policy_head_hiddens', mlp_hiddens)
-        activation = POLICY_HEAD_ACTIVATION
+        fcn_hiddens = list(model_config.get("fcnet_hiddens", [])) + \
+                      list(model_config.get("post_fcnet_hiddens", []))
+        hiddens = self.custom_model_config.get('policy_head_hiddens', 
+                                               fcn_hiddens)
+        activation = activation or 'tanh'
+        initializer = initializer or normc_initializer(1.0)
+        last_initializer = last_initializer or normc_initializer(1.0)
 
         layers = []
         prev_layer_size = input_dim
 
         # Create layers 0 to second-last.
-        _initializer_1 = initializer if initializer else normc_initializer(1.0)
         for size in hiddens:
             layers.append(
                 SlimFC(
                     in_size=prev_layer_size,
                     out_size=size,
-                    initializer=_initializer_1,
-                    activation_fn=activation
+                    initializer=initializer,
+                    activation_fn=activation,
             ))
             prev_layer_size = size
 
-        _initializer_2 = initializer if initializer else normc_initializer(0.01)
         layers.append(
             SlimFC(
                 in_size=prev_layer_size,
                 out_size=num_outputs,
-                initializer=_initializer_2,
-                activation_fn=last_activation,
-            ))
+                initializer=last_initializer,
+                activation_fn=activation,
+        ))
+
+        # Layer to add the log std vars to the state-dependent means.
+        if self.free_log_std:
+            self._append_free_log_std = AppendBiasLayer(num_outputs)
         
         return nn.Sequential(*layers)
 
+
+    def get_svo_head(self, num_outputs, model_config, activation=None, initializer=None):
+        # input_dim = self.hidden_dim + RELATIVE_OBS_DIM
+        input_dim = self.hidden_dim
+        fcn_hiddens = list(model_config.get("fcnet_hiddens", [])) + \
+                      list(model_config.get("post_fcnet_hiddens", []))
+        hiddens = self.custom_model_config.get('svo_head_hiddens', 
+                                               fcn_hiddens)
+        activation = activation or 'tanh'
+        initializer = initializer or normc_initializer(1.0)
+
+        layers = []
+        prev_layer_size = input_dim
+
+        # Create layers 0 to second-last.
+        for size in hiddens:
+            layers.append(
+                SlimFC(
+                    in_size=prev_layer_size,
+                    out_size=size,
+                    initializer=initializer,
+                    activation_fn=activation,
+            ))
+            prev_layer_size = size
+
+        layers.append(
+            SlimFC(
+                in_size=prev_layer_size,
+                out_size=num_outputs,
+                initializer=initializer,
+                activation_fn=activation,
+            ))
+        
+        return nn.Sequential(*layers)
 
 
     def _init_critic(self, model_config):
@@ -423,7 +471,8 @@ class SAModel(TorchModelV2, nn.Module):
             x = torch.concat((ego_x, nei_x), dim=-2)
 
             x, attention_matrix = self.attention_backbone(x) # B x H_hidden
-            self.last_attention_matrix = attention_matrix
+            self.last_attention_matrix = attention_matrix # (B, H, 1, num_nei+1)
+            msg['attention_matrix'] = attention_matrix[0, 0, 0, :]
             msg['after attention'] = x
             # x = x.squeeze(dim=-2)
             # msg['after squeeze'] = x
@@ -476,12 +525,11 @@ class SAModel(TorchModelV2, nn.Module):
         assert self._features is not None, "must call forward() first"
 
         # 1. 允许更新svo时继续往后反传
-        features = self._features
+        x = self._features
         # or 2. 截断
         # features = self._features.detach()
 
-
-        x = torch.concat((self._last_obs_in, features), -1) # B x (D_hidden + D_obs)
+        # x = torch.concat((self._last_obs_in, features), -1) # B x (D_hidden + D_obs)
         x = self.svo_head(x).squeeze(1)
         # torch.clamp(x, 0, 1) # for relu
         return x
@@ -497,7 +545,6 @@ class SAModel(TorchModelV2, nn.Module):
 
         assert head_name in ['svo', 'value', 'policy']
         layers = getattr(self, f'{head_name}_head')
-        last_params = getattr(self, f'last_{head_name}_params')
 
         res, grad = check_parameters_updated(layers)
 
@@ -573,3 +620,8 @@ def get_centralized_critic_obs_dim(
     return centralized_critic_obs_dim
 
 
+# Trick 8: orthogonal initialization
+def orthogonal_initializer(gain=1.0):
+    def orthogonal_init(weight):
+        nn.init.orthogonal_(weight, gain=gain)
+    return orthogonal_init

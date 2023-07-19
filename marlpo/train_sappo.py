@@ -27,11 +27,11 @@ SCENE = "intersection" if not TEST else "intersection"
 seeds = [5000]
 # seeds = [8000, 9000, 10000, 11000, 12000]
 
-NUM_AGENTS = [4, 8, 16, 30]
+# NUM_AGENTS = [4, 8, 16, 30]
 # NUM_AGENTS = [8, 16, 30]
-# NUM_AGENTS = [30]
+NUM_AGENTS = [30]
 # NUM_AGENTS = [4]
-EXP_DES = "v5(svo)"
+EXP_DES = "(svo)_max"
 
 if __name__ == "__main__":
     args = get_train_parser().parse_args()
@@ -45,6 +45,7 @@ if __name__ == "__main__":
         num_agents=tune.grid_search(NUM_AGENTS),
         return_single_space=True,
         start_seed=tune.grid_search(seeds),
+        delay_done=25,
         vehicle_config=dict(lidar=dict(num_lasers=72, distance=40, num_others=0)),
         # == neighbour config ==
         use_dict_obs=True,
@@ -57,7 +58,7 @@ if __name__ == "__main__":
     # if TEST
     stop, exp_name, num_rollout_workers = get_args_only_if_test(algo_name=ALGO_NAME, env_config=env_config, exp_des=EXP_DES, scene=SCENE, num_agents=NUM_AGENTS, test=TEST) # env_config will be modified
     
-    stop = {"timesteps_total": 3e6}
+    stop = {"timesteps_total": 1.5e6}
     if args.num_workers:
         num_rollout_workers = args.num_workers
     if TEST:
@@ -90,17 +91,22 @@ if __name__ == "__main__":
             # sgd_minibatch_size=64,
             num_sgd_iter=5,
             lambda_=0.95,
-            model={
-                "custom_model_config": {
-                    "env_cls": env_cls,
+            model=dict(
+                custom_model_config=dict(
+                    env_cls=env_cls,
                     # 'embedding_hiddens': [64, 64],
-                    'attention_dim': 64,
-                    "policy_head_hiddens": [64, 64],
-                    "onehot_attention": True,
-                },
+                    # == Attention ==
+                    use_attention=True,
+                    attention_dim=64,
+                    policy_head_hiddens=[64, 64],
+                    svo_head_hiddens=[64, 64],
+                    # onehot_attention=True,
+                    onehot_attention=tune.grid_search([True, False]),
+                ),
+                free_log_std=True,
                 # "vf_share_layers": True,
-                "vf_share_layers": True, 
-            },
+                # vf_share_layers=True, 
+            )
         )
         .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
         .update_from_dict(dict(
@@ -112,8 +118,6 @@ if __name__ == "__main__":
             use_central_critic=False,
             counterfactual=False,
             fuse_mode="none",
-            # == Attention ==
-            use_attention=True,
         ))
     )
 

@@ -10,7 +10,7 @@ from ray.rllib.utils.typing import Dict, TensorType, List, Tuple, ModelConfigDic
 from .attention import MultiHeadSelfAttention
 from modules.models_rlagents import MultiLayerPerceptron
 
-from utils import inspect, printPanel
+from utils.debug import inspect, printPanel
 
 
 # NEIGHBOUR_ACTIONS = "neighbour_actions"

@@ -1,4 +1,5 @@
 from collections import defaultdict
+from typing import Dict
 
 import numpy as np
 
@@ -15,6 +16,7 @@ from marlpo.algo.algo_ippo import IPPOConfig, IPPOTrainer
 from marlpo.algo_arippo import ARIPPOConfig, ARIPPOTrainer
 from marlpo.algo_ccppo import CCPPOConfig, CCPPOTrainer
 from marlpo.algo_arccppo import ARCCPPOConfig, ARCCPPOTrainer
+from marlpo.algo_sappo import SAPPOConfig, SAPPOTrainer
 from marlpo.callbacks import MultiAgentDrivingCallbacks
 from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env, get_ccppo_env
 from marlpo.utils.debug import print, inspect
@@ -26,10 +28,11 @@ from marlpo.utils.utils import get_other_training_resources, get_num_workers
 
 # SCENE = "roundabout"
 SCENE = "intersection"
-ALGO = 'IPPO'
+# ALGO = 'IPPO'
 # ALGO = 'ARPPO'
 # ALGO = 'CCPPO'
 # ALGO = 'ARCCPPO'
+ALGO = 'SAPPO'
 FUSE_MODE = 'concat' 
 RANDOM_ORDER = True
 # FUSE_MODE = 'mf'
@@ -63,7 +66,12 @@ ALL_CKP = dict(
     ARCCPPO_concat_40a_5000="exp_results/ARCCPPO_Roundabout_seed=5000_40agents_V0/ARCCPPOTrainer_MultiAgentRoundaboutEnv_51fd6_00001_1_start_seed=5000_fuse_mode=concat_2023-05-31_15-02-05/checkpoint_000977",
     ARCCPPO_mf_40a_5000_intersection="exp_results/ARCCPPO_Intersection_seed=5000_40agents_V0/ARCCPPOTrainer_MultiAgentIntersectionEnv_3b3e0_00000_0_start_seed=5000_fuse_mode=mf_2023-05-31_12-04-25/checkpoint_000977",
     ARCCPPO_concat_40a_5000_intersection="exp_results/ARCCPPO_Intersection_seed=5000_40agents_V1/ARCCPPOTrainer_MultiAgentIntersectionEnv_e59bc_00002_2_counterfactual=True_start_seed=5000_fuse_mode=concat_2023-06-01_01-31-52/checkpoint_000977",
-    ARCCPPO_concat_ro_40a_5000_intersection='exp_results/ARCCPPO_Roundabout_seed=5000_40agents_ro/ARCCPPOTrainer_MultiAgentRoundaboutEnv_eda47_00001_1_start_seed=5000_fuse_mode=concat_random_order=True_2023-06-02_21-55-34/checkpoint_000750'
+    ARCCPPO_concat_ro_40a_5000_intersection='exp_results/ARCCPPO_Roundabout_seed=5000_40agents_ro/ARCCPPOTrainer_MultiAgentRoundaboutEnv_eda47_00001_1_start_seed=5000_fuse_mode=concat_random_order=True_2023-06-02_21-55-34/checkpoint_000750',
+
+    # SAPPO_30a_5000_intersection='/Users/jimmy/Projects/RL/My_RLlib_Algo/exp_results/SAPPO_Inter_4-8-16-30agents_v5(svo)_use_critic_loss_update_svo/SAPPOTrainer_MultiAgentIntersectionEnv_eec86_00001_1_num_agents=8_start_seed=5000_2023-07-14_23-59-12/checkpoint_002330',
+    SAPPO_30a_5000_intersection='/Users/jimmy/Projects/RL/My_RLlib_Algo/exp_results/SAPPO_Inter_4-8-16-30agents_v5(svo)_use_critic_loss_update_svo/SAPPOTrainer_MultiAgentIntersectionEnv_eec86_00003_3_num_agents=30_start_seed=5000_2023-07-15_10-20-23/checkpoint_002930',
+    SAPPO_8a_5000_intersection='/Users/jimmy/Projects/RL/My_RLlib_Algo/exp_results/SAPPO_Inter_4-8-16-30agents_v5(svo)_use_critic_loss_update_svo/SAPPOTrainer_MultiAgentIntersectionEnv_eec86_00001_1_num_agents=8_start_seed=5000_2023-07-14_23-59-12/checkpoint_002330',
+    SAPPO_16a_5000_intersection='/Users/jimmy/Projects/RL/My_RLlib_Algo/exp_results/SAPPO_Inter_4-8-16-30agents_v5(svo)_use_critic_loss_update_svo/SAPPOTrainer_MultiAgentIntersectionEnv_eec86_00002_2_num_agents=16_start_seed=5000_2023-07-15_03-24-06/checkpoint_000810',
 )
 # ckp = 'ARPPO_32a_5000'
 
@@ -108,6 +116,37 @@ elif  ALGO == 'ARCCPPO':
         OTHER_CONFIG.update(dict(
             random_order=RANDOM_ORDER
         ))
+elif ALGO == 'SAPPO':
+    AlgoTrainer = SAPPOTrainer
+    AlgoConfig = SAPPOConfig
+
+    from marlpo.env.env_wrappers import get_rllib_cc_env
+    from marlpo.env.env_utils import get_metadrive_ma_env_cls
+
+    env, env_cls = get_rllib_cc_env(get_metadrive_ma_env_cls(SCENE), return_class=True)
+
+    OTHER_CONFIG = dict(
+        # == Common ==
+        old_value_loss=True,
+        # old_value_loss=True,
+        num_neighbours=4,
+        # == CC ==
+        use_central_critic=False,
+        counterfactual=False,
+        fuse_mode="none",
+    )
+    MODEL_CONFIG=dict(
+        custom_model_config=dict(
+            env_cls=env_cls,
+            # 'embedding_hiddens': [64, 64],
+            # == Attention ==
+            use_attention=True,
+            attention_dim=64,
+            policy_head_hiddens=[64, 64],
+            onehot_attention=True,
+        ),
+        vf_share_layers=True, 
+    )
 
 else:
     raise NotImplementedError
@@ -119,6 +158,17 @@ if SCENE == 'intersection':
 CKP_DIR = ALL_CKP[ckp]
 
 
+def flatten_obs_dict(
+    obs_dict: Dict[str, Dict[str, np.ndarray]],
+):
+    res = {}
+    for agent, o_dict in obs_dict.items():
+        tmp = []
+        for o in o_dict.values():
+            tmp.append(o.flatten())
+        res[agent] = np.concatenate(tmp)
+    return res
+
 def compute_actions_for_multi_agents_in_batch(algo, obs, infos):
     info_list = []
     assert isinstance(infos, dict)
@@ -126,6 +176,7 @@ def compute_actions_for_multi_agents_in_batch(algo, obs, infos):
         infos[k]['agent_id'] = k
         info_list.append(infos[k])
         
+    obs = flatten_obs_dict(obs)
     actions = algo.compute_actions(obs, info=info_list, explore=False)
     return actions
 
@@ -133,7 +184,7 @@ def compute_actions_for_multi_agents_separately(algo, obs):
     actions = {}
     for agent_id in obs:
         o = obs[agent_id]
-        actions[agent_id] = algo.compute_single_action(o)
+        actions[agent_id] = algo.compute_single_action(o, explore=False)
     return actions
 
 
@@ -237,7 +288,8 @@ if __name__ == "__main__":
     }
 
     # if 'ARCCPPO' in ALGO:
-    env, env_cls = get_ccppo_env(scenes[SCENE], return_class=True)
+    # env, env_cls = get_ccppo_env(scenes[SCENE], return_class=True)
+    env, env_cls = get_rllib_cc_env(get_metadrive_ma_env_cls(SCENE), return_class=True)
     # else:
     #     env, env_cls = get_rllib_compatible_gymnasium_api_env(scenes[SCENE], return_class=True)
 
@@ -250,7 +302,15 @@ if __name__ == "__main__":
         # crash_done=True,
         # "agent_policy": ManualControllableIDMPolicy
         # delay_done=0,
-        start_seed=SEED
+        # start_seed=SEED,
+        start_seed=6000,
+        delay_done=0,
+        # == neighbour config ==
+        use_dict_obs=True,
+        add_compact_state=True, # add BOTH ego- & nei- compact-state simultaneously
+        add_nei_state=False,
+        num_neighbours=4,
+        neighbours_distance=10,
     )
     
 
@@ -304,7 +364,7 @@ if __name__ == "__main__":
     NUM_EPISODES_TOTAL = 10
     cur_epi = 0
 
-    # RENDER = False
+    RENDER = False
     RENDER = True
 
     episodic_mean_rews = []
@@ -337,17 +397,21 @@ if __name__ == "__main__":
     epi_out_rate_list = []
     epi_max_step_rate_list = []
 
+    epi_neighbours_list = defaultdict(list)
+
     while not stop_render:
         
         # if ALGO == 'ARPPO' or ALGO == 'ARCCPPO_concat':
-        actions = compute_actions_for_multi_agents_in_batch(algo, obs, infos)
+        # actions = compute_actions_for_multi_agents_in_batch(algo, obs, infos)
         # else:
-        #     actions = compute_actions_for_multi_agents_separately(algo, obs, infos)
+        actions = compute_actions_for_multi_agents_separately(algo, obs)
 
         obs, rew, term, trunc, infos = env.step(actions)
         callbacks.on_episode_step(infos=infos)
 
         # on_episode_step()
+        for a, info in infos.items():
+            epi_neighbours_list[a].append(len(info['neighbours']))
 
             
 
@@ -359,8 +423,20 @@ if __name__ == "__main__":
             epi_crash_rate_list.append(metrics["crash_rate"])
             epi_out_rate_list.append(metrics["out_of_road_rate"])
             epi_max_step_rate_list.append(metrics["max_step_rate"])
+
             print(f'episode #{cur_epi} ends.')
             print(metrics)
+
+            all_mean_nei = []
+            max_nei = 0
+            for a, nei_l in epi_neighbours_list.items():
+                max_nei = max(max_nei, np.max(nei_l))
+                all_mean_nei.append(np.mean(nei_l))
+            print('mean num_neighbours', np.mean(all_mean_nei))
+            print('max num_neighbours', np.max(all_mean_nei))
+            print('min num_neighbours', np.min(all_mean_nei))
+            print('max_nei', max_nei)
+            
 
             if cur_epi >= NUM_EPISODES_TOTAL:
                 stop_render = True

@@ -17,7 +17,7 @@ from ray.rllib.utils.gym import convert_old_gym_space_to_gymnasium_space, check_
 from ray.tune.registry import register_env
 
 from marlpo.env.env_utils import metadrive_to_terminated_truncated_step_api
-from marlpo.utils import colorize, printPanel
+from marlpo.utils.debug import printPanel
 
 
 
@@ -915,6 +915,16 @@ def sns_rgb_to_rich_hex_str(color: tuple):
     hex_color = palette.as_hex()[i]
     return hex_color
 
+
+def count_neighbours(infos):
+    epi_neighbours_list = defaultdict(list)
+    for a, info in infos.items():
+        epi_neighbours_list[a].append(len(info['neighbours']))
+    
+
+
+
+
 if __name__ == "__main__":
     from marlpo.utils.debug import print, printPanel
     from metadrive.component.vehicle.base_vehicle import BaseVehicle
@@ -925,7 +935,7 @@ if __name__ == "__main__":
 
     config = dict(
         use_render=False,
-        num_agents=2,
+        num_agents=30,
         manual_control=False,
         # crash_done=True,
         agent_policy=ManualControllableIDMPolicy,
@@ -938,7 +948,7 @@ if __name__ == "__main__":
         add_compact_state=True, # add BOTH ego- & nei- compact-state simultaneously
         add_nei_state=False,
         num_neighbours=4,
-        # neighbours_distance=40,
+        neighbours_distance=10,
     )
 
     RANDOM_ACTION = False
@@ -959,16 +969,21 @@ if __name__ == "__main__":
     env = env_cls(config)
     obs, infos = env.reset()
 
-    print(obs)
-    print(infos)
-
-    # print(env.config['window_size'])
+    b_box = env.engine.current_map.road_network.get_bounding_box()
+    print(b_box)
+    exit()
 
     if env.current_track_vehicle:
         env.current_track_vehicle.expert_takeover = True 
 
+    # print(env.config['num_neighbours'])
+    # print(obs)
+    # print(infos)
+
+    # print(env.config['window_size'])
+
     print(env.observation_space)
-    print(type(env.observation_space))
+    # print(type(env.observation_space))
 
 
     # print(o['agent0'])
@@ -995,13 +1010,14 @@ if __name__ == "__main__":
         env.render(mode="top_down", file_size=(800,800))
 
         # printPanel(infos)
-        print(obs)
-        print(infos)
-        exit()
-        # for agent, o in obs.items():
+        # print(obs)
+        # print(infos)
+        # exit()
+        for agent, o in obs.items():
         #     msg = {}
                 
-        #     info = infos[agent]
+            info = infos[agent]
+            print(len(info['neighbours']))
             # vehicle: BaseVehicle = env.vehicles_including_just_terminated[agent]
             # if vehicle:
             #     v = vehicle.velocity

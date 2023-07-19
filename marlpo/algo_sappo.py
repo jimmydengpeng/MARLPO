@@ -28,8 +28,8 @@ from ray.rllib.utils.torch_utils import (
 )
 
 from marlpo.models.sa_model import SAModel
-from marlpo.utils import rich, inspect, printPanel
-rich.get_console().width -= 30
+from utils.debug import rich
+# rich.get_console().width -= 30
 
 torch, nn = try_import_torch()
 
@@ -61,7 +61,7 @@ class SAPPOConfig(PPOConfig):
         self.mf_nei_distance = 10
 
         # Attention Encoder
-        self.use_attention = True
+        # self.use_attention = True
         
         # Custom Model configs
         self.update_from_dict({"model": {"custom_model": "sa_model"}})
@@ -80,11 +80,12 @@ class SAPPOConfig(PPOConfig):
         self.model["custom_model_config"]["counterfactual"] = self["counterfactual"]
 
         # Attention Encoder
-        self.model["custom_model_config"]["use_attention"] = self["use_attention"]
+        # self.model["custom_model_config"]["use_attention"] = self["use_attention"]
 
         # get obs_shape for every env_config for attention encoder
         self.model["custom_model_config"]["env_config"] = self.env_config
 
+        self.onehot_attention = self.model["custom_model_config"]["onehot_attention"]
 
         # from ray.tune.registry import get_trainable_cls
         # env_cls = get_trainable_cls(self.env)
@@ -99,11 +100,17 @@ class SAPPOConfig(PPOConfig):
 class SAPPOPolicy(PPOTorchPolicy):
     # @override(PPOTorchPolicy)
     def extra_action_out(self, input_dict, state_batches, model, action_dist):
-        return {
-            SVO: model.svo_function(),
-            SampleBatch.VF_PREDS: model.value_function(),
-            ATTENTION_MAXTRIX: model.last_attention_matrix, # (B, H, 1, num_agents)
-        }
+        if model.use_attention:
+            return {
+                SVO: model.svo_function(),
+                SampleBatch.VF_PREDS: model.value_function(),
+                ATTENTION_MAXTRIX: model.last_attention_matrix, # (B, H, 1, num_agents)
+            }
+        else:
+            return {
+                SampleBatch.VF_PREDS: model.value_function(),
+            }
+
 
     def add_nei_rewards(self, sample_batch, other_agent_batches) -> List:
         # sample_batch["NEI_REWARDS"] =
@@ -178,53 +185,75 @@ class SAPPOPolicy(PPOTorchPolicy):
                 infos = sample_batch[SampleBatch.INFOS]
                 nei_rews = []
                 has_neighbours = []
+                # new_rews = []
+
+
                 for i, info in enumerate(infos):
                     assert isinstance(info, dict)
                     if NEI_REWARDS not in info:
                         # assert sample_batch[SampleBatch.T][i] == i, (sample_batch[SampleBatch.T][i], sample_batch[SampleBatch.AGENT_INDEX])
                         nei_rews.append(0.)
                         has_neighbours.append(0)
-                        # agent_id = f'agent{sample_batch[SampleBatch.AGENT_INDEX][0]}'
-                        # nei_rewards = info[0][agent_id][NEI_REWARDS]
-                        # print(nei_rewards)
+                        # new_rews.append(0)
                     else:
                         assert NEI_REWARDS in info
+                        ego_r = sample_batch[SampleBatch.REWARDS][i]
+                        # == NEI_REWARDS 列表不为空, 即有邻居 ==
                         if info[NEI_REWARDS]:
-                            # == 1. 使用所有邻居的奖励平均 ==
+                            # 1. == 使用所有邻居的奖励平均 ==
                             # nei_rews.append(np.mean(info[NEI_REWARDS][: self.config['num_neighbours']])) 
 
-                            # or == 2. 使用注意力选择的一辆车的奖励 ==
+                            # 2. or == 使用注意力选择的一辆车的奖励 ==
                             atn_matrix = sample_batch[ATTENTION_MAXTRIX][i] #每行均为onehot (H, 1, 当时的邻居数量+1)
-                            atn_matrix = np.squeeze(atn_matrix) # (H, num_agents)
-                            index = np.argmax(atn_matrix, axis=-1) # (H, ) # 每行代表每个头不为0的元素所在的index
-                # atn_matrix = np.argmax(atn_matrix, axis=-1)
-                            bincount = np.bincount(index) # (H, ) # 代表每行相同index出现的次数
-                            frequent_idx = np.argmax(bincount) # 返回次数最多那个index, 范围为 [0, 当时的邻居数量]
-                            # 注意每一时刻 ATTENTION_MATRIX 中 oneehot 向量的长度总是比邻居的数量大 1
-                            # 如果idx为0则选择的是自己
-                            if frequent_idx == 0:
-                                # 使用自己的奖励
-                                # nei_r = sample_batch[SampleBatch.REWARDS][i]
-                                nei_r = 0
-                            else:
-                                nei_r = info[NEI_REWARDS][frequent_idx-1]
+                            atn_matrix = np.squeeze(atn_matrix) # (H, num_nei+1)
 
-                            # print('>>> ', bincount, frequent_idx, len(info[NEI_REWARDS]), nei_r)
+                            # == 如果使用 one-hot 加权 ==
+                            if self.config['onehot_attention']:
+                                index = np.argmax(atn_matrix, axis=-1) # (H, ) # 每行代表每个头不为0的元素所在的index
+                    # atn_matrix = np.argmax(atn_matrix, axis=-1)
+                                bincount = np.bincount(index) # (H, ) # 代表每行相同index出现的次数
+                                frequent_idx = np.argmax(bincount) # 返回次数最多那个index, 范围为 [0, 当时的邻居数量]
+                                # 注意每一时刻 ATTENTION_MATRIX 中 oneehot 向量的长度总是比邻居的数量大 1
+                                # 如果idx为0则选择的是自己
+                                if frequent_idx == 0:
+                                    # 使用自己的奖励
+                                    # nei_r = ego_r
+                                    # or 使用 0 奖励
+                                    nei_r = 0
+                                else:
+                                    # svo = np.squeeze(sample_batch[SVO])[i]
+                                    # svo = (svo + 1) * np.pi / 4
+                                    nei_r = info[NEI_REWARDS][frequent_idx-1]
+                                    # new_r = np.cos(svo) * ego_r + np.sin(svo) * nei_r
+                                    # new_rews.append(new_r)
+                                    
+                            # == 使用原始注意力得分加权 ==
+                            else:
+                                total_sums = np.sum(atn_matrix) # (H, num_nei+1) -> ()
+                                scores = np.sum(atn_matrix, axis=0) / total_sums # (H, num_nei+1) -> (num_nei+1, )
+                                ego_and_nei_r = np.concatenate((np.array([ego_r]), info[NEI_REWARDS]))
+                                # nei_r = info[NEI_REWARDS]
+                                length = min(len(scores), len(ego_and_nei_r))
+                                nei_r = np.sum((scores[:length] * ego_and_nei_r[:length])[1:])
 
                             nei_rews.append(nei_r)
                             has_neighbours.append(1)
-                        else: 
+                        
+                        else: # NEI_REWARDS 列表为空, 即没有邻居
+                            assert len(info[NEI_REWARDS]) == 0
+                            # 1. == 此时邻居奖励为0 ==
                             nei_rews.append(0.)
+                            # or 2. == 使用自己的奖励当做邻居奖励 ==
+                            # or 3. == 使用自己的奖励 ==
+                            # new_rews.append(ego_r)
                             has_neighbours.append(0)
 
 
                 nei_rewards = np.array(nei_rews).astype(np.float32)
+                # new_rewards = np.array(new_rews).astype(np.float32)
                 # printPanel({'atn_matrix': atn_matrix, 'nei_r': nei_r})
 
-                # nei_r = nei_r * atn_matrix
-
                 sample_batch[NEI_REWARDS] = nei_rewards
-
                 sample_batch[HAS_NEIGHBOURS] = np.array(has_neighbours)
 
                 msg['**'] = '*'
@@ -236,8 +265,7 @@ class SAPPOPolicy(PPOTorchPolicy):
 
                 svo = (svo + 1) * np.pi / 4
                 # svo = svo * np.pi / 2
-
-
+                
                 old_r = sample_batch[SampleBatch.REWARDS]
                 new_r = np.cos(svo) * old_r + np.sin(svo) * nei_rewards
 
@@ -267,7 +295,7 @@ class SAPPOPolicy(PPOTorchPolicy):
                 use_critic=self.config.get("use_critic", True)
             )
 
-        return batch
+        return normalize_advantage(batch)
 
 
     def loss(self, model, dist_class, train_batch: SampleBatch):
@@ -288,7 +316,6 @@ class SAPPOPolicy(PPOTorchPolicy):
         # model.check_head_params_updated('policy')
         # model.check_head_params_updated('value')
         # model.check_head_params_updated('svo')
-        # model.check_params_updated('')
 
         # === actor loss ===
         logits, state = model(train_batch)
@@ -301,7 +328,6 @@ class SAPPOPolicy(PPOTorchPolicy):
         msg_tr['svo slice'] = svo[-5:]
         msg_tr['svo mean(std)'] = str(torch.std_mean(svo))
         msg_tr["*"] = '*'
-
 
         svo = (svo + 1) * torch.pi / 4 # for tanh
         # svo = svo * torch.pi / 2 # for relu
@@ -317,7 +343,6 @@ class SAPPOPolicy(PPOTorchPolicy):
         msg_svo['svo sin last_5'] = torch.sin(svo)[-5:]
         # printPanel(msg_svo, 'loss(): svo')
 
-
         msg_atn = {}
         msg_atn['atn matrix'] = model.last_attention_matrix[-1][0][0] # (B, H, 1[ego_q], num_agents)
         # printPanel(msg_atn, 'loss(): attention matrix')
@@ -332,25 +357,6 @@ class SAPPOPolicy(PPOTorchPolicy):
         # TODO: need this?
         # new_r = (1-train_batch[HAS_NEIGHBOURS]) * (1-torch.cos(svo)) * old_r + new_r
 
-        msg2 = {}
-        msg2['term'] = train_batch[SampleBatch.TERMINATEDS]
-
-        # if train_batch[SampleBatch.TERMINATEDS][-1]:
-        #     last_r = 0.0
-        # else:
-        #     last_r = train_batch[SampleBatch.VF_PREDS][-1]
-
-        # msg['last_r'] = last_r
-
-        # vpred_t = torch.tensor(np.concatenate([train_batch[SampleBatch.VF_PREDS], np.array([last_r])]))
-        
-        # q_value = new_r + gamma * train_batch[NEXT_VF_PREDS]
-        # delta_t = q_value - train_batch[SampleBatch.VF_PREDS]
-        # This formula for the advantage comes from:
-        # "Generalized Advantage Estimation": https://arxiv.org/abs/1506.02438
-        # advantage = discount_cumsum(delta_t, gamma * lambda_)
-        # advantage = delta_t
-
         # 根据新的奖励计算 GAE Advantage
         values = train_batch[SampleBatch.VF_PREDS]
         next_value = train_batch[NEXT_VF_PREDS]
@@ -358,8 +364,8 @@ class SAPPOPolicy(PPOTorchPolicy):
         gamma = self.config['gamma']
         lambda_ = self.config['lambda']
 
-        advantage = compute_advantage(new_r, values, next_value, dones, gamma, lambda_)
-        msg_tr['**'] = '*'
+        advantage = compute_advantage(new_r, values, next_value, dones, gamma, lambda_) # 带svo梯度
+        # msg_tr['**'] = '*'
         # msg_tr['advantage'] = advantage[:5]
         # msg_tr['advantage mean/std'] = torch.std_mean(advantage)
         # msg_tr['advantage req'] = advantage.requires_grad # True
@@ -492,7 +498,6 @@ class SAPPOPolicy(PPOTorchPolicy):
         model.tower_stats["mean_kl_loss"] = mean_kl_loss
 
 
-        # msg['next_vf_preds'] = train_batch[NEXT_VF_PREDS][-5:]
         # printPanel(msg, "computing value loss")
         # printPanel(msg_tr, "training msg in loss()")
 
@@ -523,6 +528,14 @@ def compute_advantage(rewards, values, next_value, dones, gamma=0.99, lambda_=0.
     # 标准化Advantage
     mean = advantages.mean()
     std = advantages.std()
-    advantages = (advantages - mean) / std
+    advantages = (advantages - mean) / (std + 1e-5)
 
     return advantages
+
+
+def normalize_advantage(batch: SampleBatch):
+    advantage = batch[Postprocessing.ADVANTAGES]
+    mean = advantage.mean()
+    std = advantage.std()
+    batch[Postprocessing.ADVANTAGES] = (advantage - mean) / (std + 1e-5)
+    return batch

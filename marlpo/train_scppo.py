@@ -99,7 +99,7 @@ if __name__ == "__main__":
                     # == Attention ==
                     use_attention=True, # whether use attention backbone or mlp backbone
                     attention_dim=64,
-                    attention_heads=2,
+                    attention_heads=4,
                     # == head dim ==
                     policy_head_hiddens=[64, 64],
                     svo_head_hiddens=[64, 64],

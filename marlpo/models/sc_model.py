@@ -42,7 +42,7 @@ HAS_NEIGHBOURS = 'has_neighbours'
 ATTENTION_MAXTRIX = 'attention_maxtrix'
 
 ATTENTION_HIDDEN_DIM = 64
-ATTENTION_HEADS = 4
+ATTENTION_HEADS = 'attention_heads'
 
 RELATIVE_OBS_DIM = 91
 
@@ -64,6 +64,7 @@ class SCModel(TorchModelV2, nn.Module):
         # == common attr ==
         self.custom_model_config = model_config['custom_model_config']
         self.obs_dim = int(np.product(self.obs_space.shape))
+        self.vf_share_layers = model_config.get("vf_share_layers")
         self.free_log_std = model_config.get("free_log_std")
         if self.free_log_std:
             assert num_outputs % 2 == 0, ("num_outputs must be divisible by two", num_outputs)
@@ -83,8 +84,10 @@ class SCModel(TorchModelV2, nn.Module):
 
             self.attention_backbone = self.get_attention_backbone()
 
+            policy_head_inputs = self.hidden_dim + (RELATIVE_OBS_DIM if self.custom_model_config['actor_concat_atn_feature'] else 0)
+           
             self.policy_head = self.get_head(head_name='policy',
-                                             num_inputs=RELATIVE_OBS_DIM,
+                                             num_inputs=policy_head_inputs,
                                              num_outputs=num_outputs, 
                                              model_config=model_config,
                                              activation='tanh',
@@ -95,7 +98,9 @@ class SCModel(TorchModelV2, nn.Module):
 
         # == critic ==
         # self.init_critic(model_config)
-        critic_head_inputs = self.hidden_dim + RELATIVE_OBS_DIM + (1 if self.custom_model_config['critic_concat_svo'] else 0)
+        critic_head_inputs = self.hidden_dim
+        if self.custom_model_config['critic_concat_obs']: critic_head_inputs += RELATIVE_OBS_DIM
+        if self.custom_model_config['critic_concat_svo']: critic_head_inputs += 1
         self.critic_head = self.get_head(head_name='critic',
                                          num_inputs=critic_head_inputs,
                                          num_outputs=1, 
@@ -247,7 +252,7 @@ class SCModel(TorchModelV2, nn.Module):
             "attention_layer": {
                 "type": "EgoAttention",
                 "feature_size": 64,
-                "heads": ATTENTION_HEADS,
+                "heads": self.custom_model_config[ATTENTION_HEADS],
                 "onehot_attention": self.custom_model_config.get('onehot_attention', False), # added HERE!
             },
             "output_layer": {
@@ -457,17 +462,10 @@ class SCModel(TorchModelV2, nn.Module):
 
             self.last_svo = self._svo_function()
             
-            # o = torch.concat((
-            #     obs[EGO_STATE], 
-            #     obs[EGO_NAVI].reshape(obs[EGO_NAVI].shape[0], -1), 
-            #     obs[LIDAR]), -1)
-            # x = torch.concat((x, o), -1) # B x (D_hidden + D_obs)
+            if self.custom_model_config['actor_concat_atn_feature']:
+                o = torch.concat((x, o), -1) # B x (D_hidden + D_rel_o)
 
-            msg['after concat'] = x
             logits = self.policy_head(o)
-            msg['after policy_head'] = logits
-
-            # self.last_svo = self.svo_layer(x)
 
         # mlp actor
         else: 
@@ -489,16 +487,16 @@ class SCModel(TorchModelV2, nn.Module):
         if not self.use_centralized_critic:
             assert self._features is not None, "must call forward() first"
             assert self.last_svo is not None
+            x = self._features
+            if self.custom_model_config['critic_concat_obs']:
+                x = torch.concat((x, self._last_rel_obs_in), -1) # B x (D_hidden + D_obs)
             if self.custom_model_config['critic_concat_svo']:
-                x = torch.concat((self._last_rel_obs_in, self._features, self.last_svo), -1) # B x (D_hidden + D_obs)
-            else:
-                x = torch.concat((self._last_rel_obs_in, self._features), -1) # B x (D_hidden + D_obs)
+                x = torch.concat((x, self.last_svo), -1) # B x (D_hidden + D_obs)
             out = self.critic_head(x).squeeze(1)
             return out
         else:
             raise NotImplementedError
 
-    
 
     def svo_function(self) -> TensorType:
         assert self.last_svo is not None

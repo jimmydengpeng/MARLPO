@@ -234,26 +234,32 @@ class SCPPOPolicy(PPOTorchPolicy):
 
                                 # == 使用 one-hot 加权 ==
                                 if self.config[NEI_REWARDS_MODE] == ATTENTIVE_ONE_NEI_REWARD:
-                                    # if self.config['onehot_attention']:
-                                    index = np.argmax(atn_matrix, axis=-1) # (H, ) # 每行代表每个头不为0的元素所在的index
-                                    # atn_matrix = np.argmax(atn_matrix, axis=-1)
-                                    bincount = np.bincount(index) # (H, ) # 代表每行相同index出现的次数
-                                    frequent_idx = np.argmax(bincount) # 返回次数最多那个index, 范围为 [0, 当时的邻居数量]
-                                    # 注意每一时刻 ATTENTION_MATRIX 中 oneehot 向量的长度总是比邻居的数量大 1
-                                    # 如果idx为0则选择的是自己
+                                    select_mode = self.config['sp_select_mode']
+                                    assert select_mode in ('numerical', 'bincount')
+                                    #  == 使用各个头注意的哪个，然后对每个头计数，看哪个被注意次数最多
+                                    if select_mode == 'bincount':
+                                        # if self.config['onehot_attention']:
+                                        index = np.argmax(atn_matrix, axis=-1) # (H, ) # 每行代表每个头不为0的元素所在的index
+                                        # atn_matrix = np.argmax(atn_matrix, axis=-1)
+                                        bincount = np.bincount(index) # (H, ) # 代表每行相同index出现的次数
+                                        frequent_idx = np.argmax(bincount) # 返回次数最多那个index, 范围为 [0, 当时的邻居数量]
+                                        # 注意每一时刻 ATTENTION_MATRIX 中 oneehot 向量的长度总是比邻居的数量大 1
+                                        # 如果idx为0则选择的是自己
+                                    #  == 把每个头的 one-hot 向量的值加起来然后做 argmax，也就是看哪个位置的数值的和最大就选哪个
+                                    elif select_mode == 'numerical':
+                                        frequent_idx = np.argmax(np.sum(atn_matrix, axis=0))
+                                        
                                     if frequent_idx == 0:
                                         # TODO: add in config!
-                                        # 使用自己的奖励
-                                        # nei_r = ego_r
-                                        # or 使用 0 奖励
-                                        nei_r = 0
+                                        nei_r = ego_r # 使用自己的奖励
+                                        # i_r = 0
                                     else:
                                         # svo = np.squeeze(sample_batch[SVO])[i]
                                         # svo = (svo + 1) * np.pi / 4
                                         nei_r = nei_rewards_t[frequent_idx-1]
                                         # new_r = np.cos(svo) * ego_r + np.sin(svo) * nei_r
                                         # new_rews.append(new_r)
-                                            
+                                                    
                                 # == 使用原始注意力得分加权 == # TODO
                                 elif self.config[NEI_REWARDS_MODE] == ATTENTIVE_ONE_NEI_REWARD:
                                     total_sums = np.sum(atn_matrix) # (H, num_nei+1) -> ()
@@ -342,7 +348,7 @@ class SCPPOPolicy(PPOTorchPolicy):
 
         # model.check_head_params_updated('policy')
         # model.check_head_params_updated('critic')
-        model.check_head_params_updated('svo')
+        # model.check_head_params_updated('svo')
 
         # === actor loss ===
         logits, state = model(train_batch)

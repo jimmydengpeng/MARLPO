@@ -18,7 +18,7 @@ from utils import (
 TEST = False # <~~ Toggle TEST mod here! 
 # TEST = True
 
-ALGO_NAME = "SAPPO"
+ALGO_NAME = "SACO"
 SCENE = "intersection" if not TEST else "intersection" 
 
 # === Env Seeds ===
@@ -30,12 +30,13 @@ seeds = [5000]
 # NUM_AGENTS = [4, 8, 16, 30]
 # NUM_AGENTS = [8, 16, 30]
 # NUM_AGENTS = [30]
-NUM_AGENTS = [4]
+NUM_AGENTS = [8]
 EXP_DES = "(saco)"
 
 if __name__ == "__main__":
     args = get_train_parser().parse_args()
     TEST = TEST or args.test
+    NUM_AGENTS = [args.num_agents] if args.num_agents else NUM_AGENTS
 
     # === Environment ===
     env, env_cls = get_rllib_cc_env(get_metadrive_ma_env_cls(SCENE), return_class=True)
@@ -51,7 +52,7 @@ if __name__ == "__main__":
         use_dict_obs=True,
         add_compact_state=True, # add BOTH ego- & nei- compact-state simultaneously
         add_nei_state=False,
-        num_neighbours=4,
+        num_neighbours=5, # determine how many neighbours's abs state will be included in obs
         neighbours_distance=10,
     )
 
@@ -96,14 +97,19 @@ if __name__ == "__main__":
                     env_cls=env_cls,
                     # 'embedding_hiddens': [64, 64],
                     # == Attention ==
-                    use_attention=True,
+                    use_attention=True, # whether use attention backbone or mlp backbone
                     attention_dim=64,
-                    policy_head_hiddens=[256, 256],
+                    attention_heads=2,
+                    # == head dim ==
+                    policy_head_hiddens=[64, 64],
                     svo_head_hiddens=[64, 64],
                     critic_head_hiddens=[64, 64],
+                    # == net arch ==
                     onehot_attention=True,
-                    svo_concat_obs=True,
-                    critic_concat_svo=False,
+                    actor_concat_atn_feature=True,
+                    critic_concat_svo=True,
+                    critic_concat_obs=True, # ──╮ ⛓ better lock together?
+                    svo_concat_obs=True,    # ──╯ 
                     # onehot_attention=tune.grid_search([True, False]),
                 ),
                 free_log_std=True,
@@ -112,18 +118,20 @@ if __name__ == "__main__":
         .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
         .update_from_dict(dict(
             # == SaCo == 
-            nei_rewards_mode=tune.grid_search([
-                'mean_nei_rewards',           # ─╮ 
-                'max_nei_rewards',            #  │
-                'nearest_nei_reward',         #  │──> Choose 1 alternatively
-                'attentive_one_nei_reward',   #  │
-                # 'attentive_all_nei_reward',   # ─╯
-            ]),
+            nei_rewards_mode='attentive_one_nei_reward',
+            sp_select_mode=tune.grid_search(['bincount', 'numerical']), # only work if use onehot_attention!
+            # nei_rewards_mode=tune.grid_search([
+            #     'mean_nei_rewards',           # ─╮ 
+            #     'max_nei_rewards',            #  │
+            #     'nearest_nei_reward',         #  │──> Choose 1 alternatively
+            #     'attentive_one_nei_reward',   #  │
+            #     # 'attentive_all_nei_reward', # ─╯
+            # ]),
             
             # == Common ==
             old_value_loss=True,
             # old_value_loss=True,
-            num_neighbours=4,
+            num_neighbours=5,
             # == CC ==
             use_central_critic=False,
             counterfactual=False,

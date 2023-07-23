@@ -2,10 +2,6 @@ from typing import Union, Dict
 import rich
 from rich import print, inspect
 from rich.panel import Panel
-# FLAG = False
-# if not FLAG:
-rich.get_console().width -= 30
-print(f'[red]({__file__}) rich console -= 30[/] [blue]{rich.get_console().width}[/]')
 
 import json
 import numbers
@@ -15,6 +11,21 @@ import yaml
 
 from ray.rllib.utils import try_import_torch
 torch, _ = try_import_torch()
+
+WINDOWN_WIDTH_REDUCED = False
+
+def reduce_window_width(WINDOWN_WIDTH_REDUCED, in_file: str = None):
+    '''args:
+        in_file: the file's name who called this function
+    '''
+    if not WINDOWN_WIDTH_REDUCED:
+        in_file = in_file or __file__
+        rich.get_console().width -= 30
+        in_file = in_file or __file__
+        WINDOWN_WIDTH_REDUCED = True
+        print(f'[red]({in_file}) rich console -= 30[/] [blue]{rich.get_console().width}[/]')
+
+# reduce_window_width(WINDOWN_WIDTH_REDUCED)
 
 class SafeFallbackEncoder(json.JSONEncoder):
     def __init__(self, nan_str="null", **kwargs):

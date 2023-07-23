@@ -90,8 +90,54 @@ WINDOW_SIZE = 151
 NUM_NEIGHBOURS = 4
 
 
+class TrackingEnv:
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # self.distance_tracker = defaultdict(dict)
+        # self._last_info = defaultdict(dict)
+        
+    def reset(
+        self, 
+        *,
+        force_seed: Optional[int] = None,
+        options: Optional[dict] = None
+    ):
+        obs = super().reset(force_seed=force_seed)
+        self.distance_tracker = defaultdict(dict)
+        return obs
 
-class CCEnv:
+    def step(self, actions):
+        obs, r, d, infos = super().step(actions)
+        self.update_distance()
+        self.add_distance_into_infos(infos)
+        return obs, r, d, infos
+    
+    def update_distance(self):
+        if hasattr(self, "vehicles_including_just_terminated"):
+            vehicles = self.vehicles_including_just_terminated
+        else:
+            vehicles = self.vehicles  # Fallback to old version MetaDrive, but this is not accurate!
+        for agent in vehicles:
+            vehicle = vehicles[agent]
+            if vehicle:
+                position = vehicle.position
+                lane, lane_index, on_lane = vehicle.navigation._get_current_lane(vehicle)
+                if lane:
+                    long, lat = lane.local_coordinates(position)
+                    self.distance_tracker[agent][lane] = long
+    
+    def add_distance_into_infos(self, infos):
+        for agent in infos:
+            dis_dict = self.distance_tracker[agent]
+            total_dis = 0
+            for lane, d in dis_dict.items():
+                total_dis += d
+            infos[agent]['current_distance'] = total_dis
+
+
+
+class CCEnv(TrackingEnv):
+# class CCEnv:
     """
     This class maintains a distance map of all agents and appends the
     neighbours' names and distances into info at each step.
@@ -781,6 +827,17 @@ def get_lcf_env(env_class):
 
 
 
+def get_tracking_env(env_class):
+    name = env_class.__name__
+
+    class TMP(TrackingEnv, env_class):
+        pass
+
+    TMP.__name__ = name
+    TMP.__qualname__ = name
+    return TMP
+
+
 def get_rllib_compatible_gymnasium_api_env(env_class, return_class=False):
     """
     Args:
@@ -935,7 +992,7 @@ if __name__ == "__main__":
 
     config = dict(
         use_render=False,
-        num_agents=30,
+        num_agents=1,
         manual_control=False,
         # crash_done=True,
         agent_policy=ManualControllableIDMPolicy,
@@ -969,9 +1026,8 @@ if __name__ == "__main__":
     env = env_cls(config)
     obs, infos = env.reset()
 
-    b_box = env.engine.current_map.road_network.get_bounding_box()
-    print(b_box)
-    exit()
+    # b_box = env.engine.current_map.road_network.get_bounding_box()
+    # print(b_box)
 
     if env.current_track_vehicle:
         env.current_track_vehicle.expert_takeover = True 
@@ -997,6 +1053,9 @@ if __name__ == "__main__":
     '''lcf env'''
     # env_cls = get_lcf_env(MultiAgentIntersectionEnv)
 
+
+    distance = {}
+
     for i in range(2000):
 
         if RANDOM_ACTION:
@@ -1013,11 +1072,21 @@ if __name__ == "__main__":
         # print(obs)
         # print(infos)
         # exit()
-        for agent, o in obs.items():
-        #     msg = {}
+        for agent, info in infos.items():
+            if tm[agent]:
+                print(agent, info['current_distance'])
+        # #     msg = {}
                 
-            info = infos[agent]
-            print(len(info['neighbours']))
+        #     info = infos[agent]
+        #     print(info['current_distance'])
+            # vehicle = env.vehicles[agent]
+            # position = vehicle.position
+            # lane, lane_index, on_lane = vehicle.navigation._get_current_lane(vehicle)
+            # print(lane)
+            # long, lat = lane.local_coordinates(position)
+            # print(long, lat)
+            # input()
+            # exit()
             # vehicle: BaseVehicle = env.vehicles_including_just_terminated[agent]
             # if vehicle:
             #     v = vehicle.velocity

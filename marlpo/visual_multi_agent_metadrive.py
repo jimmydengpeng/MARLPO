@@ -277,7 +277,22 @@ def print_final_summary(rate_lists):
         print(res, end='\n')
     
 
+
+
+def test():
+    from ray.rllib.algorithms.algorithm import Algorithm
+
+    checkpoint_path = 'exp_results/SACO_Inter_8agents_(saco)/SCPPOTrainer_MultiAgentIntersectionEnv_80870_00001_1_num_agents=8_start_seed=5000_sp_select_mode=numerical_2023-07-20_15-17-42/checkpoint_000550'
+    algo = Algorithm.from_checkpoint(checkpoint_path)
+    print('>>> ', algo.config['sp_select_mode']) 
+    algo.compute_single_action()
+
+
 if __name__ == "__main__":
+
+    test()
+
+    exit()
 
     scenes = {
         "roundabout": MultiAgentRoundaboutEnv,

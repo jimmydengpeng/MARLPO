@@ -1,3 +1,4 @@
+import math
 from ray import tune
 
 from marlpo.algo_scppo import SCPPOConfig, SCPPOTrainer
@@ -31,6 +32,7 @@ seeds = [5000]
 # NUM_AGENTS = [8, 16, 30]
 # NUM_AGENTS = [30]
 NUM_AGENTS = [8]
+NUM_NEIGHBOURS = 4
 EXP_DES = "(saco)"
 
 if __name__ == "__main__":
@@ -52,20 +54,21 @@ if __name__ == "__main__":
         use_dict_obs=True,
         add_compact_state=True, # add BOTH ego- & nei- compact-state simultaneously
         add_nei_state=False,
-        num_neighbours=5, # determine how many neighbours's abs state will be included in obs
+        num_neighbours=NUM_NEIGHBOURS, # determine how many neighbours's abs state will be included in obs
         neighbours_distance=10,
     )
 
     # if TEST
     stop, exp_name, num_rollout_workers = get_args_only_if_test(algo_name=ALGO_NAME, env_config=env_config, exp_des=EXP_DES, scene=SCENE, num_agents=NUM_AGENTS, test=TEST) # env_config will be modified
     
-    stop = {"timesteps_total": 2e6}
+    stop = {"timesteps_total": 1e6}
     if args.num_workers:
         num_rollout_workers = args.num_workers
     if TEST:
         # stop = {"timesteps_total": 3e6}
         stop = {"training_iteration": 1}
-        env_config['num_agents'] = 30
+    if TEST and not args.num_agents:
+        env_config['num_agents'] = 4
 
 
     # === Algo Setting ===
@@ -93,9 +96,12 @@ if __name__ == "__main__":
             num_sgd_iter=5,
             lambda_=0.95,
             model=dict(
+                # custom_model='saco_model',
+                # custom_model='fcn_model',
                 custom_model_config=dict(
                     env_cls=env_cls,
                     # 'embedding_hiddens': [64, 64],
+                    # 
                     # == Attention ==
                     use_attention=True, # whether use attention backbone or mlp backbone
                     attention_dim=64,
@@ -107,19 +113,27 @@ if __name__ == "__main__":
                     # == net arch ==
                     onehot_attention=True,
                     actor_concat_atn_feature=True,
-                    critic_concat_svo=True,
+                    critic_concat_svo=False,
                     critic_concat_obs=True, # ──╮ ⛓ better lock together?
                     svo_concat_obs=True,    # ──╯ 
                     # onehot_attention=tune.grid_search([True, False]),
+                    # svo_initializer='ortho',
                 ),
-                free_log_std=True,
+                free_log_std=False,
             )
         )
         .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
         .update_from_dict(dict(
-            # == SaCo == 
-            nei_rewards_mode='attentive_one_nei_reward',
-            sp_select_mode=tune.grid_search(['bincount', 'numerical']), # only work if use onehot_attention!
+            # == SaCo ==
+            use_sa_and_svo=False, # whether use attention backbone or mlp backbone 
+            fixed_svo=tune.grid_search([math.pi/4, math.pi/6, math.pi/3]),
+            use_social_attention=False, # TODO
+            use_svo=True, #tune.grid_search([True, False]), # whether or not to use svo to change reward, if False, use original reward
+            # svo_init_value=tune.grid_search(['0', 'pi/4']),
+            svo_mode='full', #tune.grid_search(['full', 'restrict']),
+            nei_rewards_mode='mean_nei_rewards', #'attentive_one_nei_reward',
+            sp_select_mode='numerical', # only work if use onehot_attention!
+            # sp_select_mode=tune.grid_search(['bincount', 'numerical']), # only work if use onehot_attention!
             # nei_rewards_mode=tune.grid_search([
             #     'mean_nei_rewards',           # ─╮ 
             #     'max_nei_rewards',            #  │
@@ -127,11 +141,11 @@ if __name__ == "__main__":
             #     'attentive_one_nei_reward',   #  │
             #     # 'attentive_all_nei_reward', # ─╯
             # ]),
-            
+            norm_adv=True,
             # == Common ==
-            old_value_loss=True,
+            old_value_loss=False,
             # old_value_loss=True,
-            num_neighbours=5,
+            num_neighbours=NUM_NEIGHBOURS,
             # == CC ==
             use_central_critic=False,
             counterfactual=False,

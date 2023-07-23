@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple
 import math
 import numpy as np
 import gym
@@ -27,13 +27,14 @@ from ray.rllib.utils.torch_utils import (
     warn_if_infinite_kl_divergence,
 )
 
-from marlpo.models.sc_model import SCModel
-from utils.debug import rich
-# rich.get_console().width -= 30
+from marlpo.models.sc_model import SCModel, FullyConnectedNetwork
+from utils.debug import printPanel, reduce_window_width, WINDOWN_WIDTH_REDUCED
+reduce_window_width(WINDOWN_WIDTH_REDUCED, __file__)
 
 torch, nn = try_import_torch()
 
 ModelCatalog.register_custom_model("saco_model", SCModel)
+ModelCatalog.register_custom_model("fcn_model", FullyConnectedNetwork)
 
 ORIGINAL_REWARDS = "original_rewards"
 NEI_REWARDS = "nei_rewards"
@@ -74,9 +75,7 @@ class SCPPOConfig(PPOConfig):
 
         # == SaCo ==
         
-        # Custom Model configs
-        self.update_from_dict({"model": {"custom_model": "saco_model"}})
-
+     
 
     def validate(self):
         super().validate()
@@ -109,6 +108,17 @@ class SCPPOConfig(PPOConfig):
         # env_cls = get_trainable_cls(self.env)
         # printPanel({'env_cls': env_cls}, color='red')
         obs_shape = self.model["custom_model_config"]['env_cls'].get_obs_shape(self.env_config)
+
+
+        self.model['custom_model_config']['use_social_attention'] = self['use_social_attention']
+        
+        # Custom Model configs
+        if self.use_sa_and_svo:
+            self.update_from_dict({"model": {"custom_model": "fcn_model"}})
+        else:
+            self.update_from_dict({"model": {"custom_model": "saco_model"}})
+
+
         msg = {}
         msg['obs_shape'] = obs_shape
         msg['custom_model_config'] = self.model["custom_model_config"]
@@ -118,7 +128,7 @@ class SCPPOConfig(PPOConfig):
 class SCPPOPolicy(PPOTorchPolicy):
     # @override(PPOTorchPolicy)
     def extra_action_out(self, input_dict, state_batches, model, action_dist):
-        if model.use_attention:
+        if self.config['use_sa_and_svo']:
             return {
                 SVO: model.svo_function(),
                 SampleBatch.VF_PREDS: model.value_function(),
@@ -130,57 +140,116 @@ class SCPPOPolicy(PPOTorchPolicy):
             }
 
 
-    def add_nei_rewards(self, sample_batch, other_agent_batches) -> List:
-        # sample_batch["NEI_REWARDS"] =
-        for index in range(sample_batch.count):
+    def add_neighbour_rewards(
+        self,
+        sample_batch: SampleBatch
+    ) -> Tuple[List, List]:
+        infos = sample_batch[SampleBatch.INFOS]
+        nei_rewards = []
+        has_neighbours = []
+        # new_rews = []
 
-            environmental_time_step = sample_batch["t"][index]
+        for i, info in enumerate(infos):
+            assert isinstance(info, dict)
+            if NEI_REWARDS not in info:
+                # assert sample_batch[SampleBatch.T][i] == i, (sample_batch[SampleBatch.T][i], sample_batch[SampleBatch.AGENT_INDEX])
+                nei_rewards.append(0.)
+                has_neighbours.append(False)
+                # new_rews.append(0)
+            else:
+                assert NEI_REWARDS in info
+                ego_r = sample_batch[SampleBatch.REWARDS][i]
+                # == NEI_REWARDS 列表不为空, 即有邻居 ==
+                nei_rewards_t = info[NEI_REWARDS] # list # [: self.config['num_neighbours']]
+                if nei_rewards_t:
+                    assert len(info[NEI_REWARDS]) > 0
+                    nei_r = 0
+                    # 1. == 使用基于规则的邻居奖励 ==
+                    if self.config[NEI_REWARDS_MODE] == MEAN_NEI_REWARDS:
+                        nei_r = np.mean(nei_rewards_t)
+                    elif self.config[NEI_REWARDS_MODE] == MAX_NEI_REWARDS:
+                        nei_r = np.max(nei_rewards_t)
+                    elif self.config[NEI_REWARDS_MODE] == NEAREST_NEI_REWARDS:
+                        nei_r = nei_rewards_t[0]
 
-            # "neighbours" may not be in sample_batch['infos'][index]:
-            neighbours = sample_batch['infos'][index].get("neighbours", [])
-
-            nei_r_list = []
-            # Note that neighbours returned by the environment are already sorted 
-            # based on their distance to the ego vehicle whose info is being used here.
-            for nei_count, nei_name in enumerate(neighbours):
-                if nei_count >= self.config["num_neighbours"]:
-                    break
-
-                nei_r = None
-                if nei_name in other_agent_batches:
-                    other_agent_batches[nei_name]
-                    if len(other_agent_batches[nei_name]) == 3:
-                        _, _, nei_batch = other_agent_batches[nei_name]
+                    # 2. or == 使用注意力选择一辆车或多辆车 ==
                     else:
-                        _, nei_batch = other_agent_batches[nei_name]
+                        atn_matrix = sample_batch[ATTENTION_MAXTRIX][i] #每行均为onehot (H, 1, 当时的邻居数量+1)
+                        atn_matrix = np.squeeze(atn_matrix) # (H, num_nei+1)
 
-                    match_its_step = np.where(nei_batch["t"] == environmental_time_step)[0]
+                        # == 使用 one-hot 加权 ==
+                        if self.config[NEI_REWARDS_MODE] == ATTENTIVE_ONE_NEI_REWARD:
+                            select_mode = self.config['sp_select_mode']
+                            assert select_mode in ('numerical', 'bincount')
+                            #  == 使用各个头注意的哪个，然后对每个头计数，看哪个被注意次数最多
+                            if select_mode == 'bincount':
+                                # if self.config['onehot_attention']:
+                                index = np.argmax(atn_matrix, axis=-1) # (H, ) # 每行代表每个头不为0的元素所在的index
+                                # atn_matrix = np.argmax(atn_matrix, axis=-1)
+                                bincount = np.bincount(index) # (H, ) # 代表每行相同index出现的次数
+                                frequent_idx = np.argmax(bincount) # 返回次数最多那个index, 范围为 [0, 当时的邻居数量]
+                                # 注意每一时刻 ATTENTION_MATRIX 中 oneehot 向量的长度总是比邻居的数量大 1
+                                # 如果idx为0则选择的是自己
+                            #  == 把每个头的 one-hot 向量的值加起来然后做 argmax，也就是看哪个位置的数值的和最大就选哪个
+                            elif select_mode == 'numerical':
+                                frequent_idx = np.argmax(np.sum(atn_matrix, axis=0))
+                                
+                            if frequent_idx == 0:
+                                # TODO: add in config!
+                                # nei_r = ego_r # 使用自己的奖励
+                                nei_r = 0
+                            else:
+                                # svo = np.squeeze(sample_batch[SVO])[i]
+                                # svo = (svo + 1) * np.pi / 4
+                                nei_r = nei_rewards_t[frequent_idx-1]
+                                # new_r = np.cos(svo) * ego_r + np.sin(svo) * nei_r
+                                # new_rews.append(new_r)
+                                            
+                        # == 使用原始注意力得分加权 == # TODO
+                        elif self.config[NEI_REWARDS_MODE] == ATTENTIVE_ONE_NEI_REWARD:
+                            total_sums = np.sum(atn_matrix) # (H, num_nei+1) -> ()
+                            scores = np.sum(atn_matrix, axis=0) / total_sums # (H, num_nei+1) -> (num_nei+1, )
+                            ego_and_nei_r = np.concatenate((np.array([ego_r]), info[NEI_REWARDS]))
+                            # nei_r = info[NEI_REWARDS]
+                            length = min(len(scores), len(ego_and_nei_r))
+                            nei_r = np.sum((scores[:length] * ego_and_nei_r[:length])[1:])
 
-                if len(match_its_step) == 0:
-                    pass
-                elif len(match_its_step) > 1:
-                    raise ValueError()
-                else:
-                    new_index = match_its_step[0]
-                    nei_r = nei_batch[SampleBatch.REWARDS][new_index]
-                    # nei_act = nei_batch[SampleBatch.ACTIONS][new_index]
-
-                if nei_r is not None:
-                    print(sample_batch[SampleBatch.INFOS][index]['agent_id'], '>>> nei:', nei_name, ': nei_r', nei_r)
-                    nei_r_list.append(nei_r)
+                    nei_rewards.append(nei_r)
+                    has_neighbours.append(True)
                 
-            nei_r_sum = np.sum(nei_r_list)
-            ego_r = sample_batch[SampleBatch.REWARDS][index]
-            # svo = sample_batch["SVO"][index]
-            
-            # sample_batch[SampleBatch.REWARDS][index] = 
-
-            # sample_batch["NEI_REWARDS"] = [index] = nei_r_list
-
-
-        # return 
+                else: # NEI_REWARDS 列表为空, 即没有邻居
+                    assert len(info[NEI_REWARDS]) == 0
+                    # 1. == 此时邻居奖励为0 ==
+                    nei_rewards.append(0.)
+                    # or 2. == 使用自己的奖励当做邻居奖励 ==
+                    # or 3. == 使用自己的奖励 ==
+                    # new_rews.append(ego_r)
+                    has_neighbours.append(False)
 
 
+        nei_rewards = np.array(nei_rewards).astype(np.float32)
+        has_neighbours = np.array(has_neighbours)
+        # new_rewards = np.array(new_rews).astype(np.float32)
+        # printPanel({'atn_matrix': atn_matrix, 'nei_r': nei_r})
+
+        sample_batch[NEI_REWARDS] = nei_rewards
+        sample_batch[HAS_NEIGHBOURS] = has_neighbours
+
+        # printPanel(msg, f'{self.__class__.__name__}.postprocess_trajectory()')
+        return nei_rewards, has_neighbours
+    
+
+    def clip_svo(self, svo, min_, max_):
+        ''' svo in (-oo, +oo)'''
+        if isinstance(svo, np.ndarray):
+            clip_method = np.clip
+        elif isinstance(svo, torch.Tensor):
+            clip_method = torch.clamp
+        return clip_method(svo * math.pi, min_, max_)
+
+    def prepare_svo(self, svo, min_, max_, mode='full'):
+        # for last activation of svo_head is relu, svo in [0, +oo)
+        pass
 
     @override(PPOTorchPolicy)
     def postprocess_trajectory(
@@ -200,135 +269,63 @@ class SCPPOPolicy(PPOTorchPolicy):
                 msg['agent id'] = f'agent{sample_batch[SampleBatch.AGENT_INDEX][0]}'
                 # msg['agent id last'] = f'agent{sample_batch[SampleBatch.AGENT_INDEX][-1]}'
 
-                infos = sample_batch[SampleBatch.INFOS]
-                nei_rewards = []
-                has_neighbours = []
-                # new_rews = []
+                if self.config['use_svo']:
+                    ''' if use svo:
+                        1. add neighbour rewards
+                        2. use predicted svo to reshape the reward returned by env 
+                            to get a new individual reward
+                    '''
+                    nei_rewards, has_neighbours = self.add_neighbour_rewards(sample_batch)
+                    msg = {}
+                    msg['has_neighbours %'] = np.sum(has_neighbours) / len(has_neighbours) * 100
+                    assert nei_rewards.shape == has_neighbours.shape
 
+                    if self.config['use_sa_and_svo']:
+                        svo = np.squeeze(sample_batch[SVO]) # [0, +oo) # (B, )
+                        if self.config['svo_mode'] == 'full':
+                            svo = self.clip_svo(svo, 0, math.pi/2)
+                        elif self.config['svo_mode'] == 'restrict':
+                            svo = self.clip_svo(svo, 0, math.pi/4)
+                        old_r = sample_batch[SampleBatch.REWARDS]
+                        new_r = np.cos(svo) * old_r + np.sin(svo) * nei_rewards
 
-                for i, info in enumerate(infos):
-                    assert isinstance(info, dict)
-                    if NEI_REWARDS not in info:
-                        # assert sample_batch[SampleBatch.T][i] == i, (sample_batch[SampleBatch.T][i], sample_batch[SampleBatch.AGENT_INDEX])
-                        nei_rewards.append(0.)
-                        has_neighbours.append(0)
-                        # new_rews.append(0)
+                    # [预设一个社交倾向] 使用固定的svo值， 当有邻居时修改 reward
                     else:
-                        assert NEI_REWARDS in info
-                        ego_r = sample_batch[SampleBatch.REWARDS][i]
-                        # == NEI_REWARDS 列表不为空, 即有邻居 ==
-                        nei_rewards_t = info[NEI_REWARDS] # list # [: self.config['num_neighbours']]
-                        if nei_rewards_t:
-                            # 1. == 使用基于规则的邻居奖励 ==
-                            if self.config[NEI_REWARDS_MODE] == MEAN_NEI_REWARDS:
-                                nei_rewards.append(np.mean(nei_rewards_t)) 
-                            elif self.config[NEI_REWARDS_MODE] == MAX_NEI_REWARDS:
-                                nei_rewards.append(np.max(nei_rewards_t)) 
-                            elif self.config[NEI_REWARDS_MODE] == NEAREST_NEI_REWARDS:
-                                nei_rewards.append(nei_rewards_t[0]) 
+                        svo_fixed = self.config.get('fixed_svo', math.pi/4)
+                        ego_rewards = sample_batch[SampleBatch.REWARDS]
+                        svo = np.zeros_like(ego_rewards)
+                        svo = np.ma.masked_array(svo, mask=has_neighbours).filled(fill_value=svo_fixed)
+                        new_r = np.cos(svo) * ego_rewards + np.sin(svo) * nei_rewards
+                        msg['new_r - old_r'] = np.sum(new_r - ego_rewards)
+                    printPanel(msg)
 
-                            # 2. or == 使用注意力选择一辆车或多辆车 ==
-                            else:
-                                atn_matrix = sample_batch[ATTENTION_MAXTRIX][i] #每行均为onehot (H, 1, 当时的邻居数量+1)
-                                atn_matrix = np.squeeze(atn_matrix) # (H, num_nei+1)
+                    sample_batch[ORIGINAL_REWARDS] = sample_batch[SampleBatch.REWARDS].copy()
+                    sample_batch[SampleBatch.REWARDS] = new_r
 
-                                # == 使用 one-hot 加权 ==
-                                if self.config[NEI_REWARDS_MODE] == ATTENTIVE_ONE_NEI_REWARD:
-                                    select_mode = self.config['sp_select_mode']
-                                    assert select_mode in ('numerical', 'bincount')
-                                    #  == 使用各个头注意的哪个，然后对每个头计数，看哪个被注意次数最多
-                                    if select_mode == 'bincount':
-                                        # if self.config['onehot_attention']:
-                                        index = np.argmax(atn_matrix, axis=-1) # (H, ) # 每行代表每个头不为0的元素所在的index
-                                        # atn_matrix = np.argmax(atn_matrix, axis=-1)
-                                        bincount = np.bincount(index) # (H, ) # 代表每行相同index出现的次数
-                                        frequent_idx = np.argmax(bincount) # 返回次数最多那个index, 范围为 [0, 当时的邻居数量]
-                                        # 注意每一时刻 ATTENTION_MATRIX 中 oneehot 向量的长度总是比邻居的数量大 1
-                                        # 如果idx为0则选择的是自己
-                                    #  == 把每个头的 one-hot 向量的值加起来然后做 argmax，也就是看哪个位置的数值的和最大就选哪个
-                                    elif select_mode == 'numerical':
-                                        frequent_idx = np.argmax(np.sum(atn_matrix, axis=0))
-                                        
-                                    if frequent_idx == 0:
-                                        # TODO: add in config!
-                                        nei_r = ego_r # 使用自己的奖励
-                                        # i_r = 0
-                                    else:
-                                        # svo = np.squeeze(sample_batch[SVO])[i]
-                                        # svo = (svo + 1) * np.pi / 4
-                                        nei_r = nei_rewards_t[frequent_idx-1]
-                                        # new_r = np.cos(svo) * ego_r + np.sin(svo) * nei_r
-                                        # new_rews.append(new_r)
-                                                    
-                                # == 使用原始注意力得分加权 == # TODO
-                                elif self.config[NEI_REWARDS_MODE] == ATTENTIVE_ONE_NEI_REWARD:
-                                    total_sums = np.sum(atn_matrix) # (H, num_nei+1) -> ()
-                                    scores = np.sum(atn_matrix, axis=0) / total_sums # (H, num_nei+1) -> (num_nei+1, )
-                                    ego_and_nei_r = np.concatenate((np.array([ego_r]), info[NEI_REWARDS]))
-                                    # nei_r = info[NEI_REWARDS]
-                                    length = min(len(scores), len(ego_and_nei_r))
-                                    nei_r = np.sum((scores[:length] * ego_and_nei_r[:length])[1:])
-
-                                nei_rewards.append(nei_r)
-                                has_neighbours.append(1)
-                        
-                        else: # NEI_REWARDS 列表为空, 即没有邻居
-                            assert len(info[NEI_REWARDS]) == 0
-                            # 1. == 此时邻居奖励为0 ==
-                            nei_rewards.append(0.)
-                            # or 2. == 使用自己的奖励当做邻居奖励 ==
-                            # or 3. == 使用自己的奖励 ==
-                            # new_rews.append(ego_r)
-                            has_neighbours.append(0)
-
-
-                nei_rewards = np.array(nei_rewards).astype(np.float32)
-                # new_rewards = np.array(new_rews).astype(np.float32)
-                # printPanel({'atn_matrix': atn_matrix, 'nei_r': nei_r})
-
-                sample_batch[NEI_REWARDS] = nei_rewards
-                sample_batch[HAS_NEIGHBOURS] = np.array(has_neighbours)
-
-                msg['**'] = '*'
-
-                svo = np.squeeze(sample_batch[SVO]) 
-
-                # === 固定 SVO ===
-                # svo = np.zeros_like(svo) + (2/3)
-
-                svo = (svo + 1) * np.pi / 4
-                # svo = svo * np.pi / 2
-                
-                old_r = sample_batch[SampleBatch.REWARDS]
-                new_r = np.cos(svo) * old_r + np.sin(svo) * nei_rewards
-
-                # new_r = (1-sample_batch[HAS_NEIGHBOURS]) * (1-np.cos(svo)) * old_r + new_r
-
-                sample_batch[ORIGINAL_REWARDS] = sample_batch[SampleBatch.REWARDS].copy()
-                sample_batch[SampleBatch.REWARDS] = new_r
-
-                # printPanel(msg, f'{self.__class__.__name__}.postprocess_trajectory()')
+                    # printPanel(msg, f'{self.__class__.__name__}.postprocess_trajectory()')
+            ### end if self.config['use_svo']:
 
             if sample_batch[SampleBatch.DONES][-1]:
                 last_r = 0.0
             else:
                 last_r = sample_batch[SampleBatch.VF_PREDS][-1]
-            # print('last_r', last_r)
 
             # == 记录 rollout 时的 V 值 == 
             vpred_t = np.concatenate([sample_batch[SampleBatch.VF_PREDS], np.array([last_r])])
             sample_batch[NEXT_VF_PREDS] = vpred_t[1:].copy()
-           
-            batch = compute_advantages(
-                sample_batch,
-                last_r,
-                self.config["gamma"],
-                self.config["lambda"],
-                use_gae=self.config["use_gae"],
-                use_critic=self.config.get("use_critic", True)
-            )
 
-        return normalize_advantage(batch)
+            # batch = compute_advantages(
+            #     sample_batch,
+            #     last_r,
+            #     self.config["gamma"],
+            #     self.config["lambda"],
+            #     use_gae=self.config["use_gae"],
+            #     use_critic=self.config.get("use_critic", True)
+            # )
+            # if self.config['norm_adv']:
+            #     normalize_advantage(batch)
+
+        return sample_batch
 
 
     def loss(self, model, dist_class, train_batch: SampleBatch):
@@ -343,7 +340,6 @@ class SCPPOPolicy(PPOTorchPolicy):
         msg['*'] = '*'
         msg['is_single_trajectory'] = train_batch.is_single_trajectory()
         msg['is_training'] = train_batch.is_training
-
         msg_tr = {}
 
         # model.check_head_params_updated('policy')
@@ -354,66 +350,64 @@ class SCPPOPolicy(PPOTorchPolicy):
         logits, state = model(train_batch)
         curr_action_dist = dist_class(logits, model)
 
+        if self.config['use_sa_and_svo']:
+            if not self.config['use_svo']:
+                rewards = train_batch[SampleBatch.REWARDS]
+            elif self.config['use_svo']:
+                # == new svo ==
+                svo = model.svo_function() # torch.tensor (B, )
 
-        # == new svo ==
-        svo = model.svo_function() # torch.tensor (B, )
+                msg_tr['svo slice'] = svo[-5:]
+                msg_tr['svo mean(std)'] = str(torch.std_mean(svo))
+                msg_tr["*"] = '*'
+                if self.config['svo_mode'] == 'full':
+                    svo = self.clip_svo(svo, 0, math.pi/2)
+                elif self.config['svo_mode'] == 'restrict':
+                    svo = self.clip_svo(svo, 0, math.pi/4)
+                # svo = (svo + 1) * torch.pi / 4 # for tanh
+                # svo = svo * torch.pi / 2 # for relu
+                msg_svo = {}
+                msg_svo['svo cos head_5'] = torch.cos(svo)[:5]
+                msg_svo['svo sin head_5'] = torch.sin(svo)[:5]
+                # msg_svo['*'] = '*'
+                # mid = len(svo) / 2
+                # msg_svo['svo cos mid'] = torch.cos(svo)[mid:mid+5]
+                # msg_svo['svo sin mid'] = torch.sin(svo)[mid:mid+5]
+                msg_svo['**'] = '*'
+                msg_svo['svo cos last_5'] = torch.cos(svo)[-5:]
+                msg_svo['svo sin last_5'] = torch.sin(svo)[-5:]
+                # printPanel(msg_svo, 'loss(): svo')
 
-        msg_tr['svo slice'] = svo[-5:]
-        msg_tr['svo mean(std)'] = str(torch.std_mean(svo))
-        msg_tr["*"] = '*'
+                msg_atn = {}
+                msg_atn['atn matrix'] = model.last_attention_matrix[-1][0][0] # (B, H, 1[ego_q], num_agents)
+                # printPanel(msg_atn, 'loss(): attention matrix')
 
-        svo = (svo + 1) * torch.pi / 4 # for tanh
-        # svo = svo * torch.pi / 2 # for relu
-        msg_svo = {}
-        msg_svo['svo cos head_5'] = torch.cos(svo)[:5]
-        msg_svo['svo sin head_5'] = torch.sin(svo)[:5]
-        # msg_svo['*'] = '*'
-        # mid = len(svo) / 2
-        # msg_svo['svo cos mid'] = torch.cos(svo)[mid:mid+5]
-        # msg_svo['svo sin mid'] = torch.sin(svo)[mid:mid+5]
-        msg_svo['**'] = '*'
-        msg_svo['svo cos last_5'] = torch.cos(svo)[-5:]
-        msg_svo['svo sin last_5'] = torch.sin(svo)[-5:]
-        # printPanel(msg_svo, 'loss(): svo')
+                old_r = train_batch[ORIGINAL_REWARDS]
+                nei_r = train_batch[NEI_REWARDS] 
+                # 重新计算加权奖励
+                rewards = torch.cos(svo) * old_r + torch.sin(svo) * nei_r # torch.tensor (B, )
+                # msg_tr['new_r mean/std'] = torch.std_mean(new_r)
+                # msg_tr['new_r req'] = new_r.requires_grad
+                # 如果没有邻居 则用自身的原始奖励
+                # TODO: need this?
+                # new_r = (1-train_batch[HAS_NEIGHBOURS]) * (1-torch.cos(svo)) * old_r + new_r
+        elif not self.config['use_sa_and_svo']:
+            rewards = train_batch[SampleBatch.REWARDS]
 
-        msg_atn = {}
-        msg_atn['atn matrix'] = model.last_attention_matrix[-1][0][0] # (B, H, 1[ego_q], num_agents)
-        # printPanel(msg_atn, 'loss(): attention matrix')
-
-        old_r = train_batch[ORIGINAL_REWARDS]
-        nei_r = train_batch[NEI_REWARDS] 
-        # 重新计算加权奖励
-        new_r = torch.cos(svo) * old_r + torch.sin(svo) * nei_r # torch.tensor (B, )
-        # msg_tr['new_r mean/std'] = torch.std_mean(new_r)
-        # msg_tr['new_r req'] = new_r.requires_grad
-        # 如果没有邻居 则用自身的原始奖励
-        # TODO: need this?
-        # new_r = (1-train_batch[HAS_NEIGHBOURS]) * (1-torch.cos(svo)) * old_r + new_r
-
-        # 根据新的奖励计算 GAE Advantage
+        # 计算 GAE Advantage
         values = train_batch[SampleBatch.VF_PREDS]
         next_value = train_batch[NEXT_VF_PREDS]
         dones = torch.tensor(train_batch[SampleBatch.TERMINATEDS]).to(dtype=torch.float32)
         gamma = self.config['gamma']
         lambda_ = self.config['lambda']
 
-        advantage = compute_advantage(new_r, values, next_value, dones, gamma, lambda_) # 带svo梯度
-        # msg_tr['**'] = '*'
-        # msg_tr['advantage'] = advantage[:5]
-        # msg_tr['advantage mean/std'] = torch.std_mean(advantage)
-        # msg_tr['advantage req'] = advantage.requires_grad # True
-        # printPanel(msg2, raw_output=True)
+        advantage = compute_advantage(rewards, values, next_value, dones, gamma, lambda_, norm=self.config['norm_adv']) # 带svo梯度
 
-
-        # msg['has_nei'] = train_batch[HAS_NEIGHBOURS][-5:]
-        # msg['old_r'] = old_r[-5:]
-        # msg['nei_r_'] = nei_r[-5:]
-        # msg['new_r'] = new_r[-5:]
-        # msg['*'] = '*'
-        # msg['old_r req'] = old_r.requires_grad
-        # msg['nei_r req'] = nei_r.requires_grad
-        # msg['new_r req'] = new_r.requires_grad
-        # msg['**'] = '*'
+        msg_tr['**'] = '*'
+        msg_tr['advantage'] = advantage[:5]
+        msg_tr['advantage std/mean'] = torch.std_mean(advantage)
+        msg_tr['advantage req'] = advantage.requires_grad # True
+        # printPanel(msg_tr, raw_output=True)
 
 
         # RNN case: Mask away 0-padded chunks at end of time axis.
@@ -455,7 +449,8 @@ class SCPPOPolicy(PPOTorchPolicy):
 
 
         # 不使用 actor loss 更新 svo
-        # advantage = train_batch[Postprocessing.ADVANTAGES] 
+        # if not self.config['use_svo']: 
+        #     advantage = train_batch[Postprocessing.ADVANTAGES] 
 
         surrogate_loss = torch.min(
             advantage * logp_ratio,
@@ -489,15 +484,17 @@ class SCPPOPolicy(PPOTorchPolicy):
 
         # == 使用原始 PPO 的 value loss ==
         else:
+            # TODO: use ippo v clip
+            v_target = advantage.detach() + train_batch[SampleBatch.VF_PREDS]
+            train_batch[Postprocessing.VALUE_TARGETS] = v_target
             # value_targets = train_batch[Postprocessing.VALUE_TARGETS]
             # vpred_t = torch.concat((value_fn_out, torch.tensor([last_r])))
-            vpred_t = train_batch[NEXT_VF_PREDS]
 
             # == 1. use 1-step ted error ==
             # delta_t = q_value - value_fn_out
 
             # == or 2. use GAE Advantage + V_t == 
-            delta_t = (advantage + train_batch[SampleBatch.VF_PREDS] - value_fn_out)
+            delta_t = (v_target - value_fn_out)
 
             vf_loss = torch.pow(delta_t, 2.0)
             # vf_loss = torch.pow(value_fn_out - train_batch[Postprocessing.VALUE_TARGETS], 2.0)
@@ -548,7 +545,7 @@ class SCPPOTrainer(PPO):
 
 
 
-def compute_advantage(rewards, values, next_value, dones, gamma=0.99, lambda_=0.95):
+def compute_advantage(rewards, values, next_value, dones, gamma=0.99, lambda_=0.95, norm=False):
     # 计算TD误差
     deltas = rewards + gamma * next_value * (1 - dones) - values
 
@@ -558,10 +555,12 @@ def compute_advantage(rewards, values, next_value, dones, gamma=0.99, lambda_=0.
     for t in reversed(range(len(rewards) - 1)):
         advantages[t] = deltas[t] + gamma * lambda_ * (1 - dones[t]) * advantages[t + 1]
 
+    if norm:
+
     # 标准化Advantage
-    mean = advantages.mean()
-    std = advantages.std()
-    advantages = (advantages - mean) / (std + 1e-5)
+        mean = advantages.mean()
+        std = advantages.std()
+        advantages = (advantages - mean) / (std + 1e-5)
 
     return advantages
 

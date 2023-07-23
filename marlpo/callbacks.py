@@ -100,7 +100,7 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
         # # Newly introduced metrics
         # track_length_list = []
         # route_completion_list = []
-        # current_distance_list = []
+        current_distance_list = []
 
         for k in keys:
             # info = episode.last_info_for(k)
@@ -110,9 +110,9 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
             # # Newly introduced metrics
             # route_completion = info.get("route_completion", -1)
             # track_length = info.get("track_length", -1)
-            # current_distance = info.get("current_distance", -1)
+            current_distance = info.get("current_distance", -1)
             # track_length_list.append(track_length)
-            # current_distance_list.append(current_distance)
+            current_distance_list.append(current_distance)
             # route_completion_list.append(route_completion)
 
 
@@ -124,6 +124,11 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
             crash_list.append(crash)
             out_of_road_list.append(out_of_road)
             max_step_list.append(max_step)
+
+        # Newly introduced metrics
+        # episode.custom_metrics["track_length"] = np.mean(track_length_list)
+        episode.custom_metrics["current_distance"] = np.mean(current_distance_list)
+        # episode.custom_metrics["route_completion"] = np.mean(route_completion_list)
 
         episode.custom_metrics["success_rate"] = np.mean(arrive_dest_list)
         episode.custom_metrics["crash_rate"] = np.mean(crash_list)
@@ -164,12 +169,14 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
         result["OutRate"] = np.nan
         result["MaxStepRate"] = np.nan
         result["LengthMean"] = result["episode_len_mean"]
+        result["DistanceMean"] = np.nan
         if "success_rate_mean" in result["custom_metrics"]:
             result["SuccessRate"] = result["custom_metrics"]["success_rate_mean"]
             result["CrashRate"] = result["custom_metrics"]["crash_rate_mean"]
             result["OutRate"] = result["custom_metrics"]["out_of_road_rate_mean"]
             result["MaxStepRate"] = result["custom_metrics"]["max_step_rate_mean"]
             result["RewardMean"] = result["custom_metrics"]["episode_reward_mean"]
+            result["DistanceMean"] = result["custom_metrics"]["current_distance_mean"] #TODO
         result["CostMean"] = np.nan
         if "episode_cost_mean" in result["custom_metrics"]:
             result["CostMean"] = result["custom_metrics"]["episode_cost_mean"]

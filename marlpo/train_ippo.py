@@ -46,8 +46,8 @@ if __name__ == "__main__":
             # lidar=dict(num_lasers=tune.grid_search([0]), distance=40, num_others=0),
         ),
         # == neighbour config ==
-        use_dict_obs=True,
-        add_compact_state=True, # add BOTH ego- & nei- compact-state simultaneously
+        use_dict_obs=False,
+        add_compact_state=False, # add BOTH ego- & nei- compact-state simultaneously
         add_nei_state=False,
         num_neighbours=4,
         neighbours_distance=10,
@@ -57,7 +57,7 @@ if __name__ == "__main__":
     # if TEST
     stop, exp_name, num_rollout_workers = get_args_only_if_test(algo_name=ALGO_NAME, env_config=env_config, exp_des=EXP_DES, scene=SCENE, num_agents=NUM_AGENTS, test=TEST)
 
-    stop = {"timesteps_total": 3e6}
+    stop = {"timesteps_total": 1e6}
     if args.num_workers:
         num_rollout_workers = args.num_workers
     if TEST:

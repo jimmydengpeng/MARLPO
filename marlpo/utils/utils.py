@@ -4,7 +4,7 @@ import argparse, sys
 def get_train_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp-name", type=str, default="")
-    parser.add_argument("--num-agents", type=int, default=4)
+    parser.add_argument("--num-agents", type=int)
     parser.add_argument("--num-gpus", type=int, default=0)
     parser.add_argument("--num-seeds", type=int, default=1)
     parser.add_argument("--num-workers", type=int,)

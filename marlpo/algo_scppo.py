@@ -114,9 +114,9 @@ class SCPPOConfig(PPOConfig):
         
         # Custom Model configs
         if self.use_sa_and_svo:
-            self.update_from_dict({"model": {"custom_model": "fcn_model"}})
-        else:
             self.update_from_dict({"model": {"custom_model": "saco_model"}})
+        else:
+            self.update_from_dict({"model": {"custom_model": "fcn_model"}})
 
 
         msg = {}

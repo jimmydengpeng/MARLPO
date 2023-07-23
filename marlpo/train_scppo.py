@@ -51,8 +51,8 @@ if __name__ == "__main__":
         delay_done=25,
         vehicle_config=dict(lidar=dict(num_lasers=72, distance=40, num_others=0)),
         # == neighbour config ==
-        use_dict_obs=True,
-        add_compact_state=True, # add BOTH ego- & nei- compact-state simultaneously
+        use_dict_obs=False,
+        add_compact_state=False, # add BOTH ego- & nei- compact-state simultaneously
         add_nei_state=False,
         num_neighbours=NUM_NEIGHBOURS, # determine how many neighbours's abs state will be included in obs
         neighbours_distance=10,

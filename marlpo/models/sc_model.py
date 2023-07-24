@@ -682,10 +682,44 @@ class FullyConnectedNetwork(TorchModelV2, nn.Module):
             initializer=normc_initializer(0.01),
             activation_fn=None,
         )
+
+        # add svo_layer
+        # hiddens = [256, 256]
+        layers = []
+        prev_layer_size = int(np.product(obs_space.shape))
+
+        for size in hiddens:
+            layers.append(
+                SlimFC(
+                    in_size=prev_layer_size,
+                    out_size=size,
+                    initializer=normc_initializer(1.0),
+                    activation_fn=activation,
+                )
+            )
+            prev_layer_size = size
+
+        layers.append(
+            SlimFC(
+                in_size=prev_layer_size,
+                out_size=1,
+                initializer=normc_initializer(0.01),
+                activation_fn=None,
+            )
+        )
+        self._svo_layer = nn.Sequential(*layers)
+
+
         # Holds the current "base" output (before logits layer).
         self._features = None
         # Holds the last input, in case value branch is separate.
         self._last_flat_in = None
+
+        self.view_requirements[SVO] = ViewRequirement()
+        self.view_requirements[NEI_REWARDS] = ViewRequirement()
+        self.view_requirements[ORIGINAL_REWARDS] = ViewRequirement(data_col=SampleBatch.REWARDS, shift=0)
+        self.view_requirements[HAS_NEIGHBOURS] = ViewRequirement()
+        self.view_requirements[ATTENTION_MAXTRIX] = ViewRequirement()
 
     @override(TorchModelV2)
     def forward(
@@ -712,6 +746,42 @@ class FullyConnectedNetwork(TorchModelV2, nn.Module):
         else:
             out = self._value_branch(self._features).squeeze(1)
         return out
+
+
+    def svo_function(self) -> TensorType:
+        assert self._features is not None, "must call forward() first"
+        svo = self._svo_layer(self._last_flat_in).squeeze(1)
+        svo = torch.tanh(svo)
+        msg = {}
+        msg['svo len'] = len(svo)
+        msg['svo std/mean'] = torch.std_mean(svo)
+        # printPanel(msg)
+        return svo
+
+    def check_params_updated(self, name: str):
+
+        def check_parameters_updated(model: nn.modules):
+            for param in model.parameters():
+                if param.requires_grad and param.grad is not None:
+                    return True, param.grad
+            return False, None
+
+        assert name in ['_svo']
+        layers = getattr(self, f'{name}_layer')
+
+        res, grad = check_parameters_updated(layers)
+
+        # res, diff = self._check_params_equal(last_params, layers.state_dict())
+        # res = not res
+        printPanel(
+            {'params updated': res,
+             'params slice': list(layers.parameters())[-2][-1][-5:],
+             'params grad': grad,
+             'grad std/mean': None if grad == None else torch.std_mean(grad),
+            }, 
+            title=f'check_{name}_params'
+        )
+
 
 
 def get_centralized_critic_obs_dim(

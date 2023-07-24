@@ -135,9 +135,16 @@ class SCPPOPolicy(PPOTorchPolicy):
                 ATTENTION_MAXTRIX: model.last_attention_matrix, # (B, H, 1, num_agents)
             }
         else:
-            return {
-                SampleBatch.VF_PREDS: model.value_function(),
-            }
+            if self.config['use_fixed_svo']:
+                return {
+                    SampleBatch.VF_PREDS: model.value_function(),
+                }
+            else:
+                return {
+                    SampleBatch.VF_PREDS: model.value_function(),
+                    SVO: model.svo_function(),
+                }
+
 
 
     def add_neighbour_rewards(
@@ -264,6 +271,9 @@ class SCPPOPolicy(PPOTorchPolicy):
         msg['sample_batch'] = sample_batch
 
         with torch.no_grad():
+            sample_batch[ORIGINAL_REWARDS] = sample_batch[SampleBatch.REWARDS].copy()
+            sample_batch[NEI_REWARDS] = sample_batch[SampleBatch.REWARDS].copy() # for init ppo
+
             if episode: # filter _initialize_loss_from_dummy_batch()
                 msg['*'] = '*'
                 msg['agent id'] = f'agent{sample_batch[SampleBatch.AGENT_INDEX][0]}'
@@ -291,13 +301,17 @@ class SCPPOPolicy(PPOTorchPolicy):
 
                     # [预设一个社交倾向] 使用固定的svo值， 当有邻居时修改 reward
                     else:
-                        svo_fixed = self.config.get('fixed_svo', math.pi/4)
-                        ego_rewards = sample_batch[SampleBatch.REWARDS]
-                        svo = np.zeros_like(ego_rewards)
-                        svo = np.ma.masked_array(svo, mask=has_neighbours).filled(fill_value=svo_fixed)
-                        new_r = np.cos(svo) * ego_rewards + np.sin(svo) * nei_rewards
-                        msg['new_r - old_r'] = np.sum(new_r - ego_rewards)
-                    printPanel(msg)
+                        if self.config['use_fixed_svo']:
+                            svo_fixed = self.config.get('fixed_svo', math.pi/4)
+                            ego_rewards = sample_batch[SampleBatch.REWARDS]
+                            svo = np.zeros_like(ego_rewards)
+                            svo = np.ma.masked_array(svo, mask=has_neighbours).filled(fill_value=svo_fixed)
+                            new_r = np.cos(svo) * ego_rewards + np.sin(svo) * nei_rewards
+                            msg['new_r - old_r'] = np.sum(new_r - ego_rewards)
+                        else:
+                            new_r = sample_batch[SampleBatch.REWARDS]
+
+                    # printPanel(msg)
 
                     sample_batch[ORIGINAL_REWARDS] = sample_batch[SampleBatch.REWARDS].copy()
                     sample_batch[SampleBatch.REWARDS] = new_r
@@ -392,7 +406,21 @@ class SCPPOPolicy(PPOTorchPolicy):
                 # TODO: need this?
                 # new_r = (1-train_batch[HAS_NEIGHBOURS]) * (1-torch.cos(svo)) * old_r + new_r
         elif not self.config['use_sa_and_svo']:
-            rewards = train_batch[SampleBatch.REWARDS]
+            if self.config['use_fixed_svo']:
+                rewards = train_batch[SampleBatch.REWARDS]
+            elif not self.config['use_fixed_svo']:
+                svo = model.svo_function() # torch.tensor (B, )
+                # model.check_params_updated('_svo')
+                check_svo(svo)
+                if self.config['svo_mode'] == 'full':
+                    svo = self.clip_svo(svo, 0, math.pi/2)
+                elif self.config['svo_mode'] == 'restrict':
+                    svo = self.clip_svo(svo, 0, math.pi/4)
+                old_r = train_batch[ORIGINAL_REWARDS]
+                nei_r = train_batch[NEI_REWARDS] 
+                # 重新计算加权奖励
+                rewards = torch.cos(svo) * old_r + torch.sin(svo) * nei_r # torch.tensor (B, )
+            
 
         # 计算 GAE Advantage
         values = train_batch[SampleBatch.VF_PREDS]
@@ -401,7 +429,10 @@ class SCPPOPolicy(PPOTorchPolicy):
         gamma = self.config['gamma']
         lambda_ = self.config['lambda']
 
-        advantage = compute_advantage(rewards, values, next_value, dones, gamma, lambda_, norm=self.config['norm_adv']) # 带svo梯度
+        advantage = compute_advantage(
+            rewards, values, next_value, dones, gamma, lambda_, 
+            norm=self.config['norm_adv']
+        ) # 带svo梯度
 
         msg_tr['**'] = '*'
         msg_tr['advantage'] = advantage[:5]
@@ -571,3 +602,9 @@ def normalize_advantage(batch: SampleBatch):
     std = advantage.std()
     batch[Postprocessing.ADVANTAGES] = (advantage - mean) / (std + 1e-5)
     return batch
+
+
+def check_svo(svo):
+    msg = {}
+    msg['svo std/mean'] = torch.std_mean(svo)
+    printPanel(msg, title='check svo in loss()')

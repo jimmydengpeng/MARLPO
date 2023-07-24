@@ -1437,4 +1437,3 @@ test*.*
 experiments/
 exp_results/
 tensorboard.sh
-# test.ipynb

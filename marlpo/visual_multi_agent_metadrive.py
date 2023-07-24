@@ -288,19 +288,32 @@ def test():
     algo.compute_single_action()
 
 
+def get_algo_new():
+    from ray.rllib.algorithms.algorithm import Algorithm
+
+    SoCO_30a_5000_intersection='exp_results/SACO_Inter_30agents_(saco)/SCPPOTrainer_MultiAgentIntersectionEnv_e73a0_00000_0_num_agents=30_start_seed=5000_use_fixed_svo=False_2023-07-23_22-47-53/checkpoint_000940'
+
+    ippo='exp_results/IPPO_Intersection_8seeds_30agents_repeat/IPPOTrainer_MultiAgentIntersectionEnv_3f8db_00000_0_start_seed=5000_seed=0_2023-06-07_19-05-44/checkpoint_000977'
+
+
+    checkpoint_path = SoCO_30a_5000_intersection
+    # checkpoint_path = ippo
+    algo = Algorithm.from_checkpoint(checkpoint_path)
+
+    return algo
+
+
+
 if __name__ == "__main__":
 
-    test()
 
-    exit()
-
-    scenes = {
-        "roundabout": MultiAgentRoundaboutEnv,
-        "intersection": MultiAgentIntersectionEnv,
-        "tollgate": MultiAgentTollgateEnv,
-        "bottleneck": MultiAgentBottleneckEnv,
-        "parkinglot": MultiAgentParkingLotEnv,
-    }
+    # scenes = {
+    #     "roundabout": MultiAgentRoundaboutEnv,
+    #     "intersection": MultiAgentIntersectionEnv,
+    #     "tollgate": MultiAgentTollgateEnv,
+    #     "bottleneck": MultiAgentBottleneckEnv,
+    #     "parkinglot": MultiAgentParkingLotEnv,
+    # }
 
     # if 'ARCCPPO' in ALGO:
     # env, env_cls = get_ccppo_env(scenes[SCENE], return_class=True)
@@ -318,11 +331,11 @@ if __name__ == "__main__":
         # "agent_policy": ManualControllableIDMPolicy
         # delay_done=0,
         # start_seed=SEED,
-        start_seed=6000,
-        delay_done=0,
+        start_seed=5000,
+        delay_done=25,
         # == neighbour config ==
-        use_dict_obs=True,
-        add_compact_state=True, # add BOTH ego- & nei- compact-state simultaneously
+        use_dict_obs=False,
+        add_compact_state=False, # add BOTH ego- & nei- compact-state simultaneously
         add_nei_state=False,
         num_neighbours=4,
         neighbours_distance=10,
@@ -331,42 +344,45 @@ if __name__ == "__main__":
 
     # === Algo Setting ===
 
-    algo_config = (
-        AlgoConfig()
-        .debugging(seed=0)
-        .framework('torch')
-        .resources(
-            **get_other_training_resources()
-        )
-        .rollouts(
-            num_rollout_workers=0,
-        )
-        .callbacks(MultiAgentDrivingCallbacks)
-        .training(
-            train_batch_size=1024,
-            gamma=0.99,
-            lr=3e-4,
-            sgd_minibatch_size=512,
-            num_sgd_iter=5,
-            lambda_=0.95,
-            model=MODEL_CONFIG,
-        )
-        .multi_agent(
-        )
-        .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
-        .update_from_dict(OTHER_CONFIG)
-    )
+    # algo_config = (
+    #     AlgoConfig()
+    #     .debugging(seed=0)
+    #     .framework('torch')
+    #     .resources(
+    #         **get_other_training_resources()
+    #     )
+    #     .rollouts(
+    #         num_rollout_workers=0,
+    #     )
+    #     .callbacks(MultiAgentDrivingCallbacks)
+    #     .training(
+    #         train_batch_size=1024,
+    #         gamma=0.99,
+    #         lr=3e-4,
+    #         sgd_minibatch_size=512,
+    #         num_sgd_iter=5,
+    #         lambda_=0.95,
+    #         model=MODEL_CONFIG,
+    #     )
+    #     .multi_agent(
+    #     )
+    #     .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
+    #     .update_from_dict(OTHER_CONFIG)
+    # )
 
     # from ray.rllib.algorithms.algorithm import Algorithm
     # algo = Algorithm.from_checkpoint(checkpoint_path)
 
-    algo = AlgoTrainer(config=algo_config)
-    # algo = AlgoTrainer(config=ALGO_CONFIG)
-    algo.load_checkpoint(CKP_DIR)
+    # algo = AlgoTrainer(config=algo_config)
+    # # algo = AlgoTrainer(config=ALGO_CONFIG)
+    # algo.load_checkpoint(CKP_DIR)
     # inspect(algo.workers)
     # inspect(algo.workers.local_worker())
     # inspect(algo.workers.local_worker().preprocessors)
     # env = algo.workers.local_worker().env
+
+
+    algo = get_algo_new()
 
     # === init metric callbacks ===
     callbacks = MetricCallbacks()

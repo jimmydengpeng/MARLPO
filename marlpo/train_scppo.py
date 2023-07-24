@@ -25,7 +25,7 @@ SCENE = "intersection" if not TEST else "intersection"
 # === Env Seeds ===
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
 # seeds = [5000, 6000, 7000]
-seeds = [5000]
+seeds = [6000]
 # seeds = [8000, 9000, 10000, 11000, 12000]
 
 # NUM_AGENTS = [4, 8, 16, 30]
@@ -96,6 +96,12 @@ if __name__ == "__main__":
             num_sgd_iter=5,
             lambda_=0.95,
             model=dict(
+                use_attention=tune.grid_search([True]),
+                max_seq_len=10,
+                attention_num_transformer_units=1,
+                attention_num_heads=1,
+                attention_head_dim=64,
+                attention_position_wise_mlp_dim=32,
                 # custom_model='saco_model',
                 # custom_model='fcn_model',
                 custom_model_config=dict(
@@ -122,12 +128,14 @@ if __name__ == "__main__":
                 free_log_std=False,
             )
         )
+        .rl_module(_enable_rl_module_api=False)
         .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
         .update_from_dict(dict(
             # == SaCo ==
             use_sa_and_svo=False, # whether use attention backbone or mlp backbone 
-            fixed_svo=tune.grid_search([math.pi/4, math.pi/6, math.pi/3]),
-            use_social_attention=False, # TODO
+            use_fixed_svo=tune.grid_search([False]),
+            fixed_svo=math.pi/4, #tune.grid_search([math.pi/4, math.pi/6, math.pi/3]),
+            use_social_attention=True, # TODO
             use_svo=True, #tune.grid_search([True, False]), # whether or not to use svo to change reward, if False, use original reward
             # svo_init_value=tune.grid_search(['0', 'pi/4']),
             svo_mode='full', #tune.grid_search(['full', 'restrict']),

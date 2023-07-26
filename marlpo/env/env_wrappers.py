@@ -954,7 +954,6 @@ class TrackingEnv:
         seed: Optional[int] = None,
         options: Optional[dict] = None
     ):
-        print('2-------', __class__.__name__)
         obs, infos = super().reset(seed=seed)
         self.distance_tracker = defaultdict(dict)
         self.update_distance()
@@ -1029,7 +1028,6 @@ class NeighbourMDEnv(TrackingEnv):
         self.obs_dim = self._compute_obs_dim()
         self.old_obs_shape = self._get_original_obs_shape()
         self.new_obs_shape, _obs_dim = self._get_new_obs_shape(self.old_obs_shape)
-        print(self.obs_dim, _obs_dim)
         # assert self.obs_dim == _obs_dim
 
     def _compute_obs_dim(self) -> int: # called only when __init__
@@ -1335,7 +1333,6 @@ class NeighbourMDEnv(TrackingEnv):
         seed: Union[None, int] = None,
         options: Optional[dict] = None
     ): 
-        print('1-------', __class__.__name__)
         obs, infos = super().reset(seed=seed)
 
         # infos = defaultdict(dict)
@@ -1419,21 +1416,27 @@ def get_rllib_compatible_ma_env(env_class, return_class=False):
     env_name = env_class.__name__
 
     class MAEnv(env_class, MultiAgentEnv):
+
         def __init__(self, config: dict):
             super().__init__(config)
             super(MultiAgentEnv, self).__init__()
-            # self.render_mode = render_mode
+            # == Gymnasium requires: ==
+            self.render_mode = self.config['render_mode']
             self.metadata = getattr(self, "metadata", {"render_modes": []})
             self.reward_range = getattr(self, "reward_range", None)
             self.spec = getattr(self, "spec", None)
+            # == rllib MultiAgentEnv requries: ==
+            if not hasattr(self, "_agent_ids"):
+                self._agent_ids = ["agent{}".format(i) for i in range(100)] + ["{}".format(i) for i in range(10000)] + ["sdc"] 
+            # == turn off MetaDriveEnv logging ==
             if getattr(self, 'logger', None):
                 self.logger.setLevel(logging.WARNING)
             
         def step(self, actions):
             o, r, tm, tc, i = super().step(actions)
+            # == add '__all__' key to MetaDrive truncated ==
             tc['__all__'] = all(tc.values())
             return o, r, tm, tc, i 
-
 
     MAEnv.__name__ = env_name
     MAEnv.__qualname__ = env_name
@@ -1443,7 +1446,6 @@ def get_rllib_compatible_ma_env(env_class, return_class=False):
         return env_name, MAEnv
     else:
         return env_name
-
 
 
 

@@ -27,7 +27,7 @@ from ray.rllib.utils.torch_utils import (
     warn_if_infinite_kl_divergence,
 )
 
-from marlpo.models.sc_model import SCModel, FullyConnectedNetwork
+from models.sc_model import SCModel, FullyConnectedNetwork
 from utils.debug import printPanel, reduce_window_width, WINDOWN_WIDTH_REDUCED
 reduce_window_width(WINDOWN_WIDTH_REDUCED, __file__)
 
@@ -74,6 +74,15 @@ class SCPPOConfig(PPOConfig):
         # self.use_attention = True
 
         # == SaCo ==
+        self.use_sa_and_svo=False
+        self.use_fixed_svo=False
+        self.fixed_svo=math.pi/4
+        self.use_social_attention=True # TODO
+        self.use_svo=True
+        self.svo_mode='full'
+        self.nei_rewards_mode='mean_nei_rewards'
+        self.sp_select_mode='numerical'
+        self.norm_adv=True
         
      
 
@@ -146,7 +155,6 @@ class SCPPOPolicy(PPOTorchPolicy):
                 }
 
 
-
     def add_neighbour_rewards(
         self,
         sample_batch: SampleBatch
@@ -167,7 +175,8 @@ class SCPPOPolicy(PPOTorchPolicy):
                 assert NEI_REWARDS in info
                 ego_r = sample_batch[SampleBatch.REWARDS][i]
                 # == NEI_REWARDS 列表不为空, 即有邻居 ==
-                nei_rewards_t = info[NEI_REWARDS] # list # [: self.config['num_neighbours']]
+                nei_rewards_t = info[NEI_REWARDS][: self.config['num_neighbours']]
+                # print('>>>', self.config['num_neighbours'])
                 if nei_rewards_t:
                     assert len(info[NEI_REWARDS]) > 0
                     nei_r = 0
@@ -411,7 +420,7 @@ class SCPPOPolicy(PPOTorchPolicy):
             elif not self.config['use_fixed_svo']:
                 svo = model.svo_function() # torch.tensor (B, )
                 # model.check_params_updated('_svo')
-                check_svo(svo)
+                # check_svo(svo)
                 if self.config['svo_mode'] == 'full':
                     svo = self.clip_svo(svo, 0, math.pi/2)
                 elif self.config['svo_mode'] == 'restrict':
@@ -425,7 +434,7 @@ class SCPPOPolicy(PPOTorchPolicy):
         # 计算 GAE Advantage
         values = train_batch[SampleBatch.VF_PREDS]
         next_value = train_batch[NEXT_VF_PREDS]
-        dones = torch.tensor(train_batch[SampleBatch.TERMINATEDS]).to(dtype=torch.float32)
+        dones = train_batch[SampleBatch.TERMINATEDS].to(dtype=values.dtype)
         gamma = self.config['gamma']
         lambda_ = self.config['lambda']
 
@@ -608,3 +617,9 @@ def check_svo(svo):
     msg = {}
     msg['svo std/mean'] = torch.std_mean(svo)
     printPanel(msg, title='check svo in loss()')
+
+
+# from ray.rllib.algorithms.registry import POLICIES
+# to fix: 
+# WARNING policy.py:134 -- Can not figure out a durable policy name for <class 'algo_scppo.SCPPOPolicy'>. You are probably trying to checkpoint a custom policy. Raw policy class may cause problems when the checkpoint needs to be loaded in the future. To fix this, make sure you add your custom policy in rllib.algorithms.registry.POLICIES.
+# POLICIES['SCPPOPolicy'] = 'algo_scppo' # "ppo.ppo_torch_policy"

@@ -1,13 +1,11 @@
 import math
 from ray import tune
 
-from marlpo.algo_scppo import SCPPOConfig, SCPPOTrainer
-from marlpo.callbacks import MultiAgentDrivingCallbacks
-from marlpo.env.env_wrappers import get_rllib_cc_env
-from marlpo.env.env_utils import get_metadrive_ma_env_cls
-from marlpo.utils.utils import get_train_parser
-
-from train.train import train
+from algo_scppo import SCPPOConfig, SCPPOTrainer
+from callbacks import MultiAgentDrivingCallbacks
+from env.env_wrappers import get_rllib_cc_env, get_rllib_compatible_ma_env, get_neighbour_md_env
+from env.env_utils import get_metadrive_ma_env_cls
+from train import train
 from utils import (
     get_train_parser, 
     get_other_training_resources, 
@@ -25,7 +23,7 @@ SCENE = "intersection" if not TEST else "intersection"
 # === Env Seeds ===
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
 # seeds = [5000, 6000, 7000]
-seeds = [6000]
+seeds = [5000]
 # seeds = [8000, 9000, 10000, 11000, 12000]
 
 # NUM_AGENTS = [4, 8, 16, 30]
@@ -41,7 +39,12 @@ if __name__ == "__main__":
     NUM_AGENTS = [args.num_agents] if args.num_agents else NUM_AGENTS
 
     # === Environment ===
-    env, env_cls = get_rllib_cc_env(get_metadrive_ma_env_cls(SCENE), return_class=True)
+    # env, env_cls = get_rllib_cc_env(get_metadrive_ma_env_cls(SCENE), return_class=True)
+    # env, env_cls = get_rllib_compatible_ma_env(get_metadrive_ma_env_cls(SCENE), return_class=True)
+    env_name, env_cls = get_rllib_compatible_ma_env(
+                            get_neighbour_md_env(
+                            get_metadrive_ma_env_cls(SCENE)), 
+                            return_class=True)
 
     # === Environmental Setting ===
     env_config = dict(
@@ -49,13 +52,13 @@ if __name__ == "__main__":
         return_single_space=True,
         start_seed=tune.grid_search(seeds),
         delay_done=25,
-        vehicle_config=dict(lidar=dict(num_lasers=72, distance=40, num_others=0)),
+        vehicle_config=dict(lidar=dict(num_lasers=72, distance=40, num_others=tune.grid_search([4]),)),
         # == neighbour config ==
         use_dict_obs=False,
         add_compact_state=False, # add BOTH ego- & nei- compact-state simultaneously
         add_nei_state=False,
         num_neighbours=NUM_NEIGHBOURS, # determine how many neighbours's abs state will be included in obs
-        neighbours_distance=10,
+        neighbours_distance=20,
     )
 
     # if TEST
@@ -96,11 +99,11 @@ if __name__ == "__main__":
             num_sgd_iter=5,
             lambda_=0.95,
             model=dict(
-                use_attention=tune.grid_search([True]),
+                use_attention=tune.grid_search([False]),
                 max_seq_len=10,
                 attention_num_transformer_units=1,
-                attention_num_heads=1,
-                attention_head_dim=64,
+                attention_num_heads=2,
+                attention_head_dim=32,
                 attention_position_wise_mlp_dim=32,
                 # custom_model='saco_model',
                 # custom_model='fcn_model',
@@ -129,7 +132,7 @@ if __name__ == "__main__":
             )
         )
         .rl_module(_enable_rl_module_api=False)
-        .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
+        .environment(env=env_name, render_env=False, env_config=env_config, disable_env_checking=False)
         .update_from_dict(dict(
             # == SaCo ==
             use_sa_and_svo=False, # whether use attention backbone or mlp backbone 

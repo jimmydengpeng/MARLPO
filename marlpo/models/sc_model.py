@@ -12,7 +12,7 @@ from ray.rllib.utils.annotations import override
 from ray.rllib.utils.framework import try_import_torch
 from ray.rllib.utils.typing import Dict, TensorType, List, Tuple, ModelConfigDict
 
-from marlpo.modules import SAEncoder
+from modules import SAEncoder
 from modules.models_rlagents import EgoAttentionNetwork
 from utils.debug import inspect, printPanel
 
@@ -751,7 +751,8 @@ class FullyConnectedNetwork(TorchModelV2, nn.Module):
     def svo_function(self) -> TensorType:
         assert self._features is not None, "must call forward() first"
         svo = self._svo_layer(self._last_flat_in).squeeze(1)
-        svo = torch.tanh(svo)
+        # svo = torch.tanh(svo)
+        svo = torch.relu(svo)
         msg = {}
         msg['svo len'] = len(svo)
         msg['svo std/mean'] = torch.std_mean(svo)

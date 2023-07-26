@@ -169,24 +169,6 @@ def flatten_obs_dict(
         res[agent] = np.concatenate(tmp)
     return res
 
-def compute_actions_for_multi_agents_in_batch(algo, obs, infos):
-    info_list = []
-    assert isinstance(infos, dict)
-    for k in obs:
-        infos[k]['agent_id'] = k
-        info_list.append(infos[k])
-        
-    obs = flatten_obs_dict(obs)
-    actions = algo.compute_actions(obs, info=info_list, explore=False)
-    return actions
-
-def compute_actions_for_multi_agents_separately(algo, obs):
-    actions = {}
-    for agent_id in obs:
-        o = obs[agent_id]
-        actions[agent_id] = algo.compute_single_action(o, explore=False)
-    return actions
-
 
 # === Metrics callbacks ===
 class MetricCallbacks():
@@ -293,14 +275,52 @@ def get_algo_new():
 
     SoCO_30a_5000_intersection='exp_results/SACO_Inter_30agents_(saco)/SCPPOTrainer_MultiAgentIntersectionEnv_e73a0_00000_0_num_agents=30_start_seed=5000_use_fixed_svo=False_2023-07-23_22-47-53/checkpoint_000940'
 
+    SoCO_30a_5000_intersection_atn='exp_results/SACO_Inter_30agents_(saco)/SCPPOTrainer_MultiAgentIntersectionEnv_aac0d_00000_0_num_agents=30_start_seed=5000_use_attention=True_use_fixed_svo=False_2023-07-24_22-45-00/checkpoint_000977'
+
+    SoCO_30a_5000_intersection_add_others='exp_results/SACO_Inter_30agents_(saco)/SCPPOTrainer_MultiAgentIntersectionEnv_c6747_00000_0_num_agents=30,start_seed=5000,num_others=4,use_attention=False,use_fixed_svo=_2023-07-26_12-06-19/checkpoint_000977'
+
     ippo='exp_results/IPPO_Intersection_8seeds_30agents_repeat/IPPOTrainer_MultiAgentIntersectionEnv_3f8db_00000_0_start_seed=5000_seed=0_2023-06-07_19-05-44/checkpoint_000977'
 
 
-    checkpoint_path = SoCO_30a_5000_intersection
+    checkpoint_path = SoCO_30a_5000_intersection_add_others
     # checkpoint_path = ippo
     algo = Algorithm.from_checkpoint(checkpoint_path)
 
     return algo
+
+
+def compute_actions_for_multi_agents_separately(algo, obs, state=None):
+    actions = {}
+    for agent_id in obs:
+        o = obs[agent_id]
+        if state:
+            o = [o]
+            action, state_out, _ = algo.compute_single_action(o, state=state, explore=False)
+            action, state_out, _ = algo.compute_actions(o, state=state, explore=False)
+            print(action)
+            print(state_out)
+        else:
+            actions[agent_id] = algo.compute_single_action(o, state=state, explore=False)
+    return actions
+
+
+def compute_actions_for_multi_agents_in_batch(algo, obs, infos, state=None):
+    info_list = []
+    assert isinstance(infos, dict)
+    for k in obs:
+        infos[k]['agent_id'] = k
+        info_list.append(infos[k])
+        
+    state = [np.reshape(state[0], (1, -1))]
+   
+    # obs = flatten_obs_dict(obs)
+    actions = algo.compute_actions(obs, state=state, info=info_list, explore=False)
+    print(actions)
+    return actions
+
+def compute_actions(algo: Algorithm, obs):
+    actions = algo.compute_actions(observations=obs)
+    return actions
 
 
 
@@ -338,7 +358,7 @@ if __name__ == "__main__":
         add_compact_state=False, # add BOTH ego- & nei- compact-state simultaneously
         add_nei_state=False,
         num_neighbours=4,
-        neighbours_distance=10,
+        neighbours_distance=20,
     )
     
 
@@ -383,6 +403,8 @@ if __name__ == "__main__":
 
 
     algo = get_algo_new()
+
+    # state = algo.get_policy().get_initial_state()
 
     # === init metric callbacks ===
     callbacks = MetricCallbacks()
@@ -433,9 +455,10 @@ if __name__ == "__main__":
     while not stop_render:
         
         # if ALGO == 'ARPPO' or ALGO == 'ARCCPPO_concat':
-        # actions = compute_actions_for_multi_agents_in_batch(algo, obs, infos)
+        # actions = compute_actions_for_multi_agents_in_batch(algo, obs, infos, state=state)
         # else:
-        actions = compute_actions_for_multi_agents_separately(algo, obs)
+        # actions = compute_actions_for_multi_agents_separately(algo, obs, state=state)
+        actions = compute_actions(algo)
 
         obs, rew, term, trunc, infos = env.step(actions)
         callbacks.on_episode_step(infos=infos)

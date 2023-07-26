@@ -262,11 +262,11 @@ def log(title: str = None, obj=None, docs=False):
 
 
 def colorize(s: str, color: str):
-    ''' wrap a str with rich's color tag
-    args:
-        color: a hex color str
+    '''wrap a str with rich's color tag.
+    Args:
+        color: a hex color str.
     '''
-    return '[bold][' + color + ']' + s + '[/]'
+    return '[bold][' + str(color) + ']' + str(s) + '[/]'
 
 
 def printPanel(

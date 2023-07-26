@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from marlpo.utils.debug import print, printPanel
+from utils.debug import print, printPanel
 
 
 class CatSelfEmbedding(nn.Module):

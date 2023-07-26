@@ -1,14 +1,21 @@
 import time
 import math
 from collections import namedtuple, defaultdict, OrderedDict
+from typing import List, Union
 from tqdm import tqdm
 from tabulate import tabulate
 import numpy as np
+import seaborn as sns
 
 from metadrive import (
+    MetaDriveEnv,
     MultiAgentRoundaboutEnv, MultiAgentIntersectionEnv, MultiAgentTollgateEnv,
     MultiAgentBottleneckEnv, MultiAgentParkingLotEnv
 )
+from metadrive.component.vehicle.base_vehicle import BaseVehicle
+
+from utils.debug import colorize
+
 
 SCENES = {
     "roundabout": MultiAgentRoundaboutEnv,
@@ -39,16 +46,6 @@ def metadrive_to_terminated_truncated_step_api(step_returns):
 
         # for single agent
         if not isinstance(dones, dict):
-            # if infos["arrive_dest"] or infos['max_step']:
-            #     terminated = True
-            # else:
-            #     terminated = dones
-
-            # if infos['crash'] or infos['crash_vehicle'] or infos['out_of_road'] or infos['']:
-            #     truncated = True
-            # else:
-            #     truncated = False
-
             return (
                 observations,
                 rewards,
@@ -124,31 +121,135 @@ def average_episode_reward(env, num_episode=100, expert_takeover=True):
     print(tabulate(res, tablefmt="rounded_grid"))
 
 
-if __name__ == '__main__':
-    try:
-        from .metadrive_env import RLlibMetaDriveEnv 
-    except:
-        from metadrive_env import RLlibMetaDriveEnv 
+def sns_rgb_to_rich_hex_str(color: tuple):
+    '''
+    Args:
+        color: (r, g, b) | each in [0, 1]
+    '''
+    palette = sns.color_palette('colorblind')
+    assert color in palette
+    i = palette.index(color)
+    hex_color = palette.as_hex()[i]
+    return hex_color
 
-    config = dict(
-        use_render=False,
-        manual_control=True,
-        traffic_density=0.1,
-        environment_num=10,
-        random_agent_model=False,
-        random_lane_width=False,
-        random_lane_num=False,
-        map=7,
-        horizon=1000,
-        start_seed=np.random.randint(0, 1000),
-        # ===== Reward Scheme =====
-        success_reward=10.0,
-        out_of_road_penalty=10.0, #5.0,
-        crash_vehicle_penalty=10.0, #5.0,
-        crash_object_penalty=10.0, #5.0,
-        driving_reward=1.0, #1.0,
-        speed_reward=0.1,
-        use_lateral_reward=False,
+
+def get_agent_color_in_env_for_rich(
+    agent: str, 
+    env: MetaDriveEnv, 
+) -> str:
+    vehicle: BaseVehicle = env.vehicles_including_just_terminated[agent]
+    if vehicle:
+        return sns_rgb_to_rich_hex_str(vehicle.panda_color)
+    else:
+        print(f'[Warning] failed getting agent_id <{agent}> \'s color from env!')
+        return '#33ff33' # light green
+
+
+def colorize_dict(
+    dict_: dict, 
+    color: str, # a rich compatible color
+    keys: Union[str, List[str]] = None,
+) -> str:
+    if isinstance(keys, str): keys = [keys]
+    for k in keys:
+        dict_[k] = colorize(dict_[k], color)
+    return dict_
+
+
+def colorize_info_for_agent(
+    agent: str, 
+    info: dict, 
+    env: MetaDriveEnv, 
+    keys: Union[str, List[str]] = None,
+) -> str:
+    """wrap a rich's color tag around an agent's id in info dict
+       with its own rendering color.
+    """
+    color = get_agent_color_in_env_for_rich(agent, env)
+    colorize_dict(agent, info, color, keys)
+    return color
+
+
+# TODO: refactor
+def interpre_obs(obs: np.ndarray, config: dict, color: str = None):
+    """Make the obs array human readable.
+
+    Args:
+        obs: obs from env.
+        color: str | hex color for rich.
+    
+    Returns:
+        A dict that can be print through printPanel().
+    """
+    def parse_multi_group_obs(
+        obs, 
+        start_idx: int, 
+        num_groups: int, 
+        group_entries: tuple, 
+        group_name: str,
+    ) -> dict:
+        groups = {}
+        i = start_idx
+        for j in range(num_groups):
+            tmp = {}
+            for name in group_entries:
+                tmp[name] = obs[i]
+                i += 1
+            groups[group_name+'_'+str(j)] = tmp
+            if j != num_groups-1:
+                groups['-'+'-'*(j+1)] = '-'
+        return groups, i
+    
+    EGO_STATE = (
+        'd_left_yellow',
+        'd_right_side_walk',
+        'diff_heading&lane',
+        'v_x',
+        'steering',
+        'acc_pre',
+        'steering_pre',
+        'yaw_rate',
+        'lateral_pos',
     )
-    env = RLlibMetaDriveEnv(config)
-    average_episode_reward(env, num_episode=10)
+
+    NAVI_INFO = (
+        'd_navi_heading',
+        'd_navi_side',
+        'r_checkpoint_lane',
+        'clockwise',
+        'angle',
+    )
+
+    OTHER_VEHICLES_INFO = (
+        'd_heading',
+        'd_side',
+        'v_heading',
+        'v_side',
+    )
+
+    num_lasers = config['vehicle_config']['lidar']['num_lasers']
+    num_others = config['vehicle_config']['lidar']['num_others']
+
+    assert len(EGO_STATE) + 2*len(NAVI_INFO) + \
+            num_others*len(OTHER_VEHICLES_INFO) + num_lasers \
+            == len(obs)
+    
+    res = {}
+    i = 0
+    # == 1. EGO
+    tmp = {}
+    for name in EGO_STATE:
+        tmp[name] = obs[i]
+        i += 1
+    res['EGO_STATE'] = tmp
+    res['*'] = '*'
+
+    res['NAVI_INFO'], i = parse_multi_group_obs(obs, i, 2, NAVI_INFO, 'NAVI')
+    res['**'] = '*'
+
+    res['OTHERS'], i = parse_multi_group_obs(obs, i, 4, OTHER_VEHICLES_INFO, 'OTHERS')
+    res['***'] = '*'
+    
+    res['LIDAR'] = obs[i: ]
+
+    return res

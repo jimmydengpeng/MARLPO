@@ -18,6 +18,7 @@ def train(
     checkpoint_freq=10,
     keep_checkpoints_num=None,
     start_seed=0, # for grid search worker seeds
+    results_path='./exp_results',
     local_mode=False,
     save_pkl=True,
     custom_callback=None,
@@ -61,7 +62,7 @@ def train(
         trainer,
         run_config=air.RunConfig(
             name=exp_name,
-            storage_path="./exp_results",
+            storage_path=results_path,
             stop=stop,
             checkpoint_config=checkpoint_config,
             verbose=verbose,

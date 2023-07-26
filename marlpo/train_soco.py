@@ -30,7 +30,7 @@ seeds = [5000]
 # NUM_AGENTS = [30]
 NUM_AGENTS = [8]
 NUM_NEIGHBOURS = 4
-EXP_DES = "(soco)"
+EXP_DES = "v1"
 
 if __name__ == "__main__":
     args = get_train_parser().parse_args()
@@ -38,8 +38,6 @@ if __name__ == "__main__":
     NUM_AGENTS = [args.num_agents] if args.num_agents else NUM_AGENTS
 
     # === Environment ===
-    # env, env_cls = get_rllib_cc_env(get_metadrive_ma_env_cls(SCENE), return_class=True)
-    # env, env_cls = get_rllib_compatible_ma_env(get_metadrive_ma_env_cls(SCENE), return_class=True)
     env_name, env_cls = get_rllib_compatible_ma_env(
                             get_neighbour_md_env(
                             get_metadrive_ma_env_cls(SCENE)), 
@@ -51,7 +49,13 @@ if __name__ == "__main__":
         return_single_space=True,
         start_seed=tune.grid_search(seeds),
         delay_done=25,
-        vehicle_config=dict(lidar=dict(num_lasers=72, distance=40, num_others=tune.grid_search([4]),)),
+        vehicle_config=dict(
+            lidar=dict(
+                num_lasers=72, 
+                distance=40, 
+                num_others=tune.grid_search([4]),
+            )
+        ),
         # == neighbour config ==
         use_dict_obs=False,
         add_compact_state=False, # add BOTH ego- & nei- compact-state simultaneously
@@ -74,7 +78,7 @@ if __name__ == "__main__":
         num_rollout_workers = args.num_workers
     if TEST:
         # stop = {"timesteps_total": 3e6}
-        stop = {"training_iteration": 1}
+        stop = {"training_iteration": 10}
     if TEST and not args.num_agents:
         env_config['num_agents'] = 4
 
@@ -140,6 +144,7 @@ if __name__ == "__main__":
         .environment(env=env_name, render_env=False, env_config=env_config, disable_env_checking=False)
         .update_from_dict(dict(
             # == SaCo ==
+            add_svo_loss=True,
             use_sa_and_svo=False, # whether use attention backbone or mlp backbone 
             use_fixed_svo=tune.grid_search([False]),
             fixed_svo=math.pi/4, #tune.grid_search([math.pi/4, math.pi/6, math.pi/3]),
@@ -178,5 +183,6 @@ if __name__ == "__main__":
         checkpoint_freq=10,
         keep_checkpoints_num=3,
         num_gpus=0,
+        results_path='exp_SoCO',
         test_mode=TEST,
     )

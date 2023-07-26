@@ -1,15 +1,9 @@
 from typing import List, Tuple
 import math
 import numpy as np
-import gym
 from ray.rllib.algorithms.ppo.ppo import PPO, PPOConfig
 from ray.rllib.algorithms.ppo.ppo_torch_policy import PPOTorchPolicy
-from ray.rllib.evaluation.postprocessing import (
-    Postprocessing, 
-    compute_gae_for_sample_batch, 
-    compute_advantages,
-    discount_cumsum
-    )
+from ray.rllib.evaluation.postprocessing import Postprocessing
 from ray.rllib.models.catalog import ModelCatalog
 from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.policy.sample_batch import SampleBatch
@@ -27,14 +21,14 @@ from ray.rllib.utils.torch_utils import (
     warn_if_infinite_kl_divergence,
 )
 
-from models.sc_model import SCModel, FullyConnectedNetwork
+from models.soco_model import SOCOModel, SOCOFCNModel
 from utils.debug import printPanel, reduce_window_width, WINDOWN_WIDTH_REDUCED
 reduce_window_width(WINDOWN_WIDTH_REDUCED, __file__)
 
 torch, nn = try_import_torch()
 
-ModelCatalog.register_custom_model("saco_model", SCModel)
-ModelCatalog.register_custom_model("fcn_model", FullyConnectedNetwork)
+ModelCatalog.register_custom_model("soco_model", SOCOModel)
+ModelCatalog.register_custom_model("soco_fcn_model", SOCOFCNModel)
 
 ORIGINAL_REWARDS = "original_rewards"
 NEI_REWARDS = "nei_rewards"
@@ -123,9 +117,9 @@ class SOCOConfig(PPOConfig):
         
         # Custom Model configs
         if self.use_sa_and_svo:
-            self.update_from_dict({"model": {"custom_model": "saco_model"}})
+            self.update_from_dict({"model": {"custom_model": "soco_model"}})
         else:
-            self.update_from_dict({"model": {"custom_model": "fcn_model"}})
+            self.update_from_dict({"model": {"custom_model": "soco_fcn_model"}})
 
 
         msg = {}
@@ -261,7 +255,7 @@ class SOCOPolicy(PPOTorchPolicy):
             clip_method = np.clip
         elif isinstance(svo, torch.Tensor):
             clip_method = torch.clamp
-        return clip_method(svo * math.pi, min_, max_)
+        return clip_method(svo, min_, max_)
 
     def prepare_svo(self, svo, min_, max_, mode='full'):
         # for last activation of svo_head is relu, svo in [0, +oo)
@@ -419,12 +413,42 @@ class SOCOPolicy(PPOTorchPolicy):
                 rewards = train_batch[SampleBatch.REWARDS]
             elif not self.config['use_fixed_svo']:
                 svo = model.svo_function() # torch.tensor (B, )
+
+                # == debug ==
+                msg = {}
+                infos = train_batch[SampleBatch.INFOS]
+                if isinstance(infos, np.ndarray) and len(infos) > 0 and isinstance(infos[0], dict):
+                    agent_ids = []
+                    for info in infos:
+                        if 'agent_id' in info:
+                            agent_ids.append(info['agent_id'])
+
+                    all_ids = set(agent_ids)
+                    msg['all_ids'] = all_ids
+
+                    msg['agent_ids :30'] = set(agent_ids[:30])
+
+                msg['*'] = '*'
+                _len = 10
+                msg['svo_original :30'] = svo[:_len]
+                msg['svo_original mean/std'] = get_mean_std_str(svo)
+                msg['**'] = '*'
+
                 # model.check_params_updated('_svo')
-                # check_svo(svo)
+                svo = (torch.tanh(svo) + 1) * torch.pi/4
+                msg['svo_rescaled :30'] = svo[:_len]
+                msg['svo_rescaled mean/std'] = get_mean_std_str(svo)
+                # msg['***'] = '*'
+
                 if self.config['svo_mode'] == 'full':
                     svo = self.clip_svo(svo, 0, math.pi/2)
                 elif self.config['svo_mode'] == 'restrict':
                     svo = self.clip_svo(svo, 0, math.pi/4)
+                # msg['svo_clipped  :30'] = svo[:30]
+                # msg['svo_clipped mean/std'] = get_mean_std_str(svo)
+
+                # printPanel(msg, title='in loss', raw_output=True)
+                
                 old_r = train_batch[ORIGINAL_REWARDS]
                 nei_r = train_batch[NEI_REWARDS] 
                 # 重新计算加权奖励
@@ -492,11 +516,19 @@ class SOCOPolicy(PPOTorchPolicy):
         # if not self.config['use_svo']: 
         #     advantage = train_batch[Postprocessing.ADVANTAGES] 
 
-        surrogate_loss = torch.min(
-            advantage * logp_ratio,
-            advantage *
-            torch.clamp(logp_ratio, 1 - self.config["clip_param"], 1 + self.config["clip_param"]),
-        )
+        if self.config['add_svo_loss']:
+            advantage_detach = advantage.detach()
+            surrogate_loss = torch.min(
+                advantage_detach * logp_ratio,
+                advantage_detach *
+                torch.clamp(logp_ratio, 1 - self.config["clip_param"], 1 + self.config["clip_param"]),
+            )
+        else:
+            surrogate_loss = torch.min(
+                advantage * logp_ratio,
+                advantage *
+                torch.clamp(logp_ratio, 1 - self.config["clip_param"], 1 + self.config["clip_param"]),
+            )
 
         msg_tr['***'] = '*'
         msg_tr['surrogate_loss mean/std'] = torch.std_mean(surrogate_loss)
@@ -544,12 +576,19 @@ class SOCOPolicy(PPOTorchPolicy):
             msg_tr['vf_loss mean/std'] = torch.std_mean(vf_loss) 
             # msg_tr['vf_loss slice'] = vf_loss[:5] 
 
+
         mean_vf_loss = reduce_mean_valid(vf_loss_clipped)
 
+        if self.config['add_svo_loss']:
+            svo_loss = advantage
+
+        else:
+            svo_loss = 0
         # === Total loss ===
         total_loss = reduce_mean_valid(
-            -surrogate_loss + self.config["vf_loss_coeff"] * vf_loss_clipped - self.entropy_coeff * curr_entropy
+            -surrogate_loss + self.config["vf_loss_coeff"] * vf_loss_clipped - self.entropy_coeff * curr_entropy - svo_loss
         )
+
 
         # Add mean_kl_loss (already processed through `reduce_mean_valid`),
         # if necessary.
@@ -613,7 +652,9 @@ def normalize_advantage(batch: SampleBatch):
     return batch
 
 
-def check_svo(svo):
-    msg = {}
-    msg['svo std/mean'] = torch.std_mean(svo)
-    printPanel(msg, title='check svo in loss()')
+def get_mean_std_str(tensor) -> str:
+    std, mean = torch.std_mean(tensor)
+    return f'{mean.item():.3f} / {std.item():.3f}'
+
+
+__all__ = ['SOCOConfig', 'SOCOTrainer']

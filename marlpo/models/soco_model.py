@@ -46,7 +46,7 @@ ATTENTION_HEADS = 'attention_heads'
 
 RELATIVE_OBS_DIM = 91
 
-class SCModel(TorchModelV2, nn.Module):
+class SOCOModel(TorchModelV2, nn.Module):
 
     def __init__(
         self,
@@ -566,7 +566,7 @@ class SCModel(TorchModelV2, nn.Module):
 
 
 
-class FullyConnectedNetwork(TorchModelV2, nn.Module):
+class SOCOFCNModel(TorchModelV2, nn.Module):
     """Generic fully connected network."""
 
     def __init__(
@@ -585,7 +585,7 @@ class FullyConnectedNetwork(TorchModelV2, nn.Module):
         hiddens = list(model_config.get("fcnet_hiddens", [])) + list(
             model_config.get("post_fcnet_hiddens", [])
         )
-        activation = model_config.get("fcnet_activation")
+        activation = model_config.get("fcnet_activation") # tanh by default
         if not model_config.get("fcnet_hiddens", []):
             activation = model_config.get("post_fcnet_activation")
         no_final_linear = model_config.get("no_final_linear")
@@ -752,7 +752,7 @@ class FullyConnectedNetwork(TorchModelV2, nn.Module):
         assert self._features is not None, "must call forward() first"
         svo = self._svo_layer(self._last_flat_in).squeeze(1)
         # svo = torch.tanh(svo)
-        svo = torch.relu(svo)
+        # svo = torch.relu(svo)
         msg = {}
         msg['svo len'] = len(svo)
         msg['svo std/mean'] = torch.std_mean(svo)

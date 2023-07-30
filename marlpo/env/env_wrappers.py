@@ -10,19 +10,16 @@ import gym.spaces as old_gym_spaces
 import gymnasium as gym
 from gymnasium.spaces import Box
 
+from metadrive.component.vehicle.base_vehicle import BaseVehicle
 from metadrive.utils import get_np_random, clip
 
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.gym import convert_old_gym_space_to_gymnasium_space, check_old_gym_env
+from ray.rllib.utils.typing import MultiAgentDict
 from ray.tune.registry import register_env
 
-
-try:
-    from .env_utils import metadrive_to_terminated_truncated_step_api
-except:
-    from marlpo.env.env_utils import metadrive_to_terminated_truncated_step_api
-# from marlpo.utils.debug import printPanel
-
+from .env_utils import metadrive_to_terminated_truncated_step_api
+from utils.debug import printPanel
 
 
 
@@ -1406,7 +1403,7 @@ def get_neighbour_md_env(env_class):
 
 
 
-def get_rllib_compatible_ma_env(env_class, return_class=False):
+def get_rllib_compatible_env(env_class, return_class=False):
     """Make a MetaDrive env a subclass of RLlib's MuiltiAgentEnv
         & modify some annoying stuff in the new version of metadrive.
     
@@ -1415,22 +1412,32 @@ def get_rllib_compatible_ma_env(env_class, return_class=False):
     """
     env_name = env_class.__name__
 
-    class MAEnv(env_class, MultiAgentEnv):
+    class MAEnv(env_class, MultiAgentEnv):        
+        # == rllib MultiAgentEnv requries: ==
+        _agent_ids = ["agent{}".format(i) for i in range(100)] + ["{}".format(i) for i in range(10000)] + ["sdc"]
 
-        def __init__(self, config: dict):
-            super().__init__(config)
-            super(MultiAgentEnv, self).__init__()
+        def __init__(self, config: dict, *args, **kwargs):
+            env_class.__init__(self, config, *args, **kwargs)
+            MultiAgentEnv.__init__(self)
             # == Gymnasium requires: ==
-            self.render_mode = self.config['render_mode']
+            self.render_mode = config.get('render_mode', None)
             self.metadata = getattr(self, "metadata", {"render_modes": []})
             self.reward_range = getattr(self, "reward_range", None)
             self.spec = getattr(self, "spec", None)
-            # == rllib MultiAgentEnv requries: ==
-            if not hasattr(self, "_agent_ids"):
-                self._agent_ids = ["agent{}".format(i) for i in range(100)] + ["{}".format(i) for i in range(10000)] + ["sdc"] 
+           
             # == turn off MetaDriveEnv logging ==
             if getattr(self, 'logger', None):
                 self.logger.setLevel(logging.WARNING)
+
+        def reset(
+            self,
+            *,
+            seed: Optional[int] = None,
+            options: Optional[dict] = None,
+        ) -> Tuple[MultiAgentDict, MultiAgentDict]:
+            obs_and_infos = super().reset(seed)
+            super(MultiAgentEnv, self).reset()
+            return obs_and_infos
             
         def step(self, actions):
             o, r, tm, tc, i = super().step(actions)
@@ -1438,6 +1445,7 @@ def get_rllib_compatible_ma_env(env_class, return_class=False):
             tc['__all__'] = all(tc.values())
             return o, r, tm, tc, i 
 
+        
     MAEnv.__name__ = env_name
     MAEnv.__qualname__ = env_name
     register_env(env_name, lambda config: MAEnv(config))
@@ -1447,137 +1455,3 @@ def get_rllib_compatible_ma_env(env_class, return_class=False):
     else:
         return env_name
 
-
-
-
-if __name__ == "__main__":
-    try:
-        from marlpo.utils.debug import print, printPanel
-    except:
-        pass
-    from metadrive.component.vehicle.base_vehicle import BaseVehicle
-    from metadrive.envs.marl_envs import MultiAgentRoundaboutEnv, MultiAgentIntersectionEnv
-    from metadrive.policy.idm_policy import ManualControllableIDMPolicy
-    import seaborn as sns
-    import math
-
-    config = dict(
-        use_render=False,
-        num_agents=30,
-        manual_control=False,
-        # crash_done=True,
-        agent_policy=ManualControllableIDMPolicy,
-        return_single_space=True,
-        vehicle_config=dict(
-            lidar=dict(num_lasers=72, distance=40, num_others=0),
-        ),
-        # == neighbour config ==
-        use_dict_obs=True,
-        add_compact_state=True, # add BOTH ego- & nei- compact-state simultaneously
-        add_nei_state=False,
-        num_neighbours=4,
-        neighbours_distance=40,
-    )
-
-    RANDOM_ACTION = False
-
-    # cc_metadrive_env = get_ccenv(MultiAgentRoundaboutEnv)
-    # cc_metadrive_new_api_env_str, cc_metadrive_new_api_env_cls = get_rllib_compatible_new_gymnasium_api_env(cc_metadrive_env, return_class=True)
-    # env = cc_metadrive_new_api_env_cls(config)
-
-    '''cc env'''
-    # env_name, env_cls = get_ccppo_env(MultiAgentRoundaboutEnv, return_class=True)
-    # env_name, env_cls = get_rllib_cc_env(MultiAgentIntersectionEnv, return_class=True)
-    env_name, env_cls = get_rllib_compatible_ma_env(get_neighbour_md_env(MultiAgentIntersectionEnv), return_class=True)
-    print(env_name)
-
-    # env_cls.get_obs_shape(config)
-
-
-    env = env_cls({})
-    obs, infos = env.reset()
-    print(len(obs))
-
-    # b_box = env.engine.current_map.road_network.get_bounding_box()
-    # print(b_box)
-
-    if env.current_track_vehicle:
-        env.current_track_vehicle.expert_takeover = True 
-
-    # print(env.config['num_neighbours'])
-    # print(obs)
-    # print(infos)
-
-    # print(env.config['window_size'])
-
-    print(env.observation_space)
-    # print(type(env.observation_space))
-
-
-    # print(o['agent0'])
-    # print(i['agent0'])
-    # print(o['agent1'])
-    # print(i['agent1'])
-
-    # exit()
-    # env.render(mode="top_down", file_size=(800,800))
-
-    '''lcf env'''
-    # env_cls = get_lcf_env(MultiAgentIntersectionEnv)
-
-
-    distance = {}
-
-    for i in range(2000):
-
-        if RANDOM_ACTION:
-            actions = {}
-            for v in env.vehicles:
-                actions[v] = env.action_space.sample()
-            o, r, tm, tc, infos = env.step(actions)
-        else:
-            obs, rew, tm, tc, infos = env.step({agent_id: [0, 0] for agent_id in env.vehicles.keys()})
-
-        env.render(mode="top_down", file_size=(800,800))
-
-        # printPanel(infos)
-        # print(obs)
-        # print(infos)
-        # exit()
-        for agent, info in infos.items():
-            if tm[agent]:
-                # print(agent, info['current_distance'])
-                print(info)
-                break
-        # #     msg = {}
-                
-        #     info = infos[agent]
-        #     print(info['current_distance'])
-            # vehicle = env.vehicles[agent]
-            # position = vehicle.position
-            # lane, lane_index, on_lane = vehicle.navigation._get_current_lane(vehicle)
-            # print(lane)
-            # long, lat = lane.local_coordinates(position)
-            # print(long, lat)
-            # input()
-            # exit()
-            # vehicle: BaseVehicle = env.vehicles_including_just_terminated[agent]
-            # if vehicle:
-            #     v = vehicle.velocity
-            #     color = vehicle.panda_color
-            #     info['agent_id'] = colorize(info['agent_id'], sns_rgb_to_rich_hex_str(color))
-            #     # msg['OBS'] = named_obs
-            #     # msg['-'] = '-'
-            #     msg['INFO'] = info
-            #     heading = int(vehicle.heading_theta / math.pi * 180)
-            #     printPanel(msg, title='OBS')
-        # input() 
-
-        if tm['__all__']:
-            # print(f'terminated at total {i} steps')
-            print('env.episode_lengths:', env.episode_lengths)
-            print('env.episode_step:', env.episode_step)
-            env.reset()
-            # break
-
-    env.close()

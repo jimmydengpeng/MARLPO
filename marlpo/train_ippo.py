@@ -1,7 +1,7 @@
 from ray import tune
 
 from algo import IPPOConfig, IPPOTrainer
-from env.env_wrappers import get_rllib_compatible_ma_env, get_neighbour_md_env
+from env.env_wrappers import get_rllib_compatible_env, get_neighbour_md_env
 from env.env_utils import get_metadrive_ma_env_cls
 from callbacks import MultiAgentDrivingCallbacks
 
@@ -35,9 +35,8 @@ if __name__ == "__main__":
     NUM_AGENTS = [args.num_agents] if args.num_agents else NUM_AGENTS
 
     # === Environment ===
-    env_name, env_cls = get_rllib_compatible_ma_env(
-                            get_neighbour_md_env(
-                            get_metadrive_ma_env_cls(SCENE)), 
+    env_name, env_cls = get_rllib_compatible_env(
+                            get_metadrive_ma_env_cls(SCENE), 
                             return_class=True)
 
     # === Environmental Setting ===
@@ -53,12 +52,6 @@ if __name__ == "__main__":
                 num_others=tune.grid_search([0]),
             )
         ),
-        # == neighbour config ==
-        use_dict_obs=False,
-        add_compact_state=False, # add BOTH ego- & nei- compact-state simultaneously
-        add_nei_state=False,
-        num_neighbours=4,
-        neighbours_distance=10,
     )
 
     # if TEST 
@@ -104,7 +97,7 @@ if __name__ == "__main__":
             env=env_name,
             render_env=False,
             env_config=env_config,
-            disable_env_checking=False
+            disable_env_checking=True,
         )
     )
 

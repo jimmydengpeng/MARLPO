@@ -3,7 +3,7 @@ from ray import tune
 
 from algo import SOCOConfig, SOCOTrainer
 from callbacks import MultiAgentDrivingCallbacks
-from env.env_wrappers import get_rllib_compatible_ma_env, get_neighbour_md_env
+from env.env_wrappers import get_rllib_compatible_env, get_neighbour_md_env
 from env.env_utils import get_metadrive_ma_env_cls
 from train import train
 from utils import (
@@ -38,7 +38,7 @@ if __name__ == "__main__":
     NUM_AGENTS = [args.num_agents] if args.num_agents else NUM_AGENTS
 
     # === Environment ===
-    env_name, env_cls = get_rllib_compatible_ma_env(
+    env_name, env_cls = get_rllib_compatible_env(
                             get_neighbour_md_env(
                             get_metadrive_ma_env_cls(SCENE)), 
                             return_class=True)

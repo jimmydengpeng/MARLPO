@@ -1,7 +1,7 @@
 from ray.rllib.algorithms.algorithm import Algorithm
 
 from metadrive.component.vehicle.base_vehicle import BaseVehicle
-from env.env_wrappers import get_rllib_cc_env, get_rllib_compatible_ma_env, get_neighbour_md_env
+from env.env_wrappers import get_rllib_cc_env, get_rllib_compatible_env, get_neighbour_md_env
 from env.env_utils import get_metadrive_ma_env_cls
 
 
@@ -11,7 +11,7 @@ SCENE = "intersection" if not TEST else "intersection"
 
 
 if __name__ == "__main__":
-    env_name, env_cls = get_rllib_compatible_ma_env(
+    env_name, env_cls = get_rllib_compatible_env(
                             get_neighbour_md_env(
                             get_metadrive_ma_env_cls(SCENE)), 
                             return_class=True)

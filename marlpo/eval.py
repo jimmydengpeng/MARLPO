@@ -179,17 +179,40 @@ def test():
 def get_algo_new():
     from ray.rllib.algorithms.algorithm import Algorithm
 
+    ScCO_16a_5000_intersection_4others_nei_dis_20m='exp_SoCO/SOCO_Inter_16agents_v0/SOCOTrainer_MultiAgentIntersectionEnv_a5911_00000_0_num_agents=16,start_seed=5000,num_others=4,use_attention=False,use_fixed_svo=F_2023-07-26_20-55-07/checkpoint_000977'
     SoCO_30a_5000_intersection='exp_results/SACO_Inter_30agents_(saco)/SCPPOTrainer_MultiAgentIntersectionEnv_e73a0_00000_0_num_agents=30_start_seed=5000_use_fixed_svo=False_2023-07-23_22-47-53/checkpoint_000940'
 
     SoCO_30a_5000_intersection_atn='exp_results/SACO_Inter_30agents_(saco)/SCPPOTrainer_MultiAgentIntersectionEnv_aac0d_00000_0_num_agents=30_start_seed=5000_use_attention=True_use_fixed_svo=False_2023-07-24_22-45-00/checkpoint_000977'
 
     SoCO_30a_5000_intersection_add_others='exp_results/SACO_Inter_30agents_(saco)/SCPPOTrainer_MultiAgentIntersectionEnv_c6747_00000_0_num_agents=30,start_seed=5000,num_others=4,use_attention=False,use_fixed_svo=_2023-07-26_12-06-19/checkpoint_000977'
 
+    ScCO_30a_5000_intersection_no_others_nei_dis_10m='exp_SoCO/SOCO_Inter_30agents_v1/SOCOTrainer_MultiAgentIntersectionEnv_4f5b8_00000_0_neighbours_distance=10,num_agents=30,start_seed=5000,num_others=0,use_attentio_2023-07-26_22-47-14/checkpoint_000977' # BEST
+    ScCO_30a_5000_intersection_no_others_nei_dis_10m_max_r_init_0='exp_SoCO/SOCO_Inter_30agents_v1_-a_max_nei_r_init_0/SOCOTrainer_MultiAgentIntersectionEnv_1c238_00000_0_neighbours_distance=10,num_agents=30,start_seed=5000,num_others=0,nei_rewards__2023-07-27_22-30-18/checkpoint_000977'
+    ScCO_30a_5000_intersection_no_others_nei_dis_20m='exp_SoCO/SOCO_Inter_30agents_v1/SOCOTrainer_MultiAgentIntersectionEnv_4f5b8_00001_1_neighbours_distance=20,num_agents=30,start_seed=5000,num_others=0,use_attentio_2023-07-26_22-47-14/checkpoint_000977'
+
+    ScCO_30a_5000_intersection_no_others_nei_dis_40m='exp_SoCO/SOCO_Inter_30agents_v1/SOCOTrainer_MultiAgentIntersectionEnv_4f5b8_00002_2_neighbours_distance=40,num_agents=30,start_seed=5000,num_others=0,use_attentio_2023-07-26_22-47-14/checkpoint_000977'
+
+    ScCO_30a_5000_intersection_no_others_nei_dis_10m_coeff_1='exp_SoCO/SOCO_Inter_30agents_v1(-a)(mean_nei_r)(svo_init_pi_6)(svo_coeff_1e-1)/SOCOTrainer_MultiAgentIntersectionEnv_55553_00000_0_num_agents=30,start_seed=5000,nei_rewards_mode=mean_nei_rewards,svo_asymmetry__2023-07-28_17-15-45/checkpoint_001460'
+
     ippo='exp_results/IPPO_Intersection_8seeds_30agents_repeat/IPPOTrainer_MultiAgentIntersectionEnv_3f8db_00000_0_start_seed=5000_seed=0_2023-06-07_19-05-44/checkpoint_000977'
 
+    ippo_16a_4others='exp_SoCO/IPPO_Inter_16agents_(obs=107)/IPPOTrainer_MultiAgentIntersectionEnv_d0a96_00000_0_num_agents=16,start_seed=5000,num_others=4_2023-07-26_20-49-10/checkpoint_000977'
 
-    checkpoint_path = SoCO_30a_5000_intersection_add_others
-    # checkpoint_path = ippo
+    ippo_30a_obs_91='exp_SoCO/IPPO_Inter_30agents_(obs=91)/IPPOTrainer_MultiAgentIntersectionEnv_b73e8_00000_0_num_agents=30,start_seed=5000,num_others=0_2023-07-27_13-09-08/checkpoint_000977'
+
+    ippo_30a_obs_91_2='exp_SoCO/IPPO_Inter_30agents_(obs=91)/IPPOTrainer_MultiAgentIntersectionEnv_325a1_00000_0_num_agents=30,start_seed=6000,num_others=0_2023-07-28_18-12-02/checkpoint_000977'
+
+    pth='exp_SoCO/SOCO_Inter_30agents_v1(-a)(mean_nei_r)(svo_init_pi_6)(svo_coeff_1e-2)/SOCOTrainer_MultiAgentIntersectionEnv_6e8c2_00000_0_num_agents=30,start_seed=5000,nei_rewards_mode=mean_nei_rewards,svo_asymmetry__2023-07-28_17-16-27/checkpoint_001465'
+
+    ippo_best='exp_SoCO/IPPO_Inter_30agents_(obs=91)/IPPOTrainer_MultiAgentIntersectionEnv_e8564_00000_0_num_agents=30,start_seed=5000,num_others=0_2023-07-29_22-05-00/checkpoint_001730'
+
+    # checkpoint_path = ScCO_30a_5000_intersection_no_others_nei_dis_10m
+    checkpoint_path = ScCO_30a_5000_intersection_no_others_nei_dis_10m_max_r_init_0
+    checkpoint_path = ScCO_30a_5000_intersection_no_others_nei_dis_10m_coeff_1
+    # checkpoint_path = ippo_16a_4others
+    # checkpoint_path = ippo_30a_obs_91_2
+    # checkpoint_path = pth
+    checkpoint_path = ippo_best
     algo = Algorithm.from_checkpoint(checkpoint_path)
 
     return algo
@@ -224,13 +247,19 @@ def compute_actions_for_multi_agents_in_batch(algo, obs, infos, state=None):
     print(actions)
     return actions
 
-def compute_actions(algo: Algorithm, obs):
-    actions = algo.compute_actions(observations=obs)
-    return actions
+
+def compute_actions(algo: Algorithm, obs, extra_actions=False):
+    if extra_actions:
+        actions, states, infos = algo.compute_actions(observations=obs, full_fetch=True)
+        return actions, infos
+    else:
+        actions = algo.compute_actions(observations=obs)
+        return actions
 
 
 
 if __name__ == "__main__":
+    from metadrive.component.vehicle.base_vehicle import BaseVehicle
     from env.env_wrappers import get_rllib_cc_env, get_rllib_compatible_ma_env, get_neighbour_md_env
     from env.env_utils import get_metadrive_ma_env_cls
 
@@ -252,7 +281,7 @@ if __name__ == "__main__":
             lidar=dict(
                 num_lasers=72, 
                 distance=40, 
-                num_others=4,
+                num_others=0,
             )
         ),
         # == neighbour config ==
@@ -260,7 +289,7 @@ if __name__ == "__main__":
         add_compact_state=False, # add BOTH ego- & nei- compact-state simultaneously
         add_nei_state=False,
         num_neighbours=4,
-        neighbours_distance=20,
+        neighbours_distance=10,
     )
     
     algo = get_algo_new()
@@ -317,7 +346,14 @@ if __name__ == "__main__":
         # actions = compute_actions_for_multi_agents_in_batch(algo, obs, infos, state=state)
         # else:
         # actions = compute_actions_for_multi_agents_separately(algo, obs, state=state)
-        actions = compute_actions(algo, obs)
+        # actions = compute_actions(algo, obs, extra_actions=False)
+        HAS_SVO = False
+        if HAS_SVO:
+            actions, infos = compute_actions(algo, obs, extra_actions=True)
+            svo = infos['svo'] # ndarray (N_agents, )
+        else:
+            actions = compute_actions(algo, obs, extra_actions=False)
+            svo = None
 
         obs, rew, term, trunc, infos = env.step(actions)
         callbacks.on_episode_step(infos=infos)
@@ -358,7 +394,38 @@ if __name__ == "__main__":
             obs, infos = env.reset()
            
         if RENDER:
-            env.render(mode="top_down", film_size=(1000, 1000))
+            # vehicles = env.vehicles_including_just_terminated
+            vehicles = env.vehicles
+            for agent in actions:
+                break
+            if agent in vehicles:
+                v: BaseVehicle = vehicles[agent]
+                color = v.panda_color
+            else:
+                v = None
+                color = None
+
+            text = {
+                'id ': f'{agent}',
+                'color': color,
+                # position=vehicle.position,
+            }
+
+            if svo is not None:
+                svo_args = {
+                    'svo': svo[0],
+                    'cos': np.cos(svo[0]),
+                    'sin': np.sin(svo[0]),
+                }
+                text.update(svo_args)
+
+            env.render(
+                text=text,
+                current_track_vehicle = v,
+                mode="top_down", 
+                film_size=(1000, 1000),
+                screen_size=(1000, 1000),
+            )
 
     env.close()
     print_final_summary((

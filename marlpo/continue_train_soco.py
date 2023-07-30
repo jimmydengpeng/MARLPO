@@ -1,41 +1,27 @@
-import math
-from ray import tune
+from ray.rllib.algorithms.algorithm import Algorithm
 
-from algo import SOCOConfig, SOCOTrainer
-from callbacks import MultiAgentDrivingCallbacks
-from env.env_wrappers import get_rllib_compatible_ma_env, get_neighbour_md_env
+from metadrive.component.vehicle.base_vehicle import BaseVehicle
+from env.env_wrappers import get_rllib_cc_env, get_rllib_compatible_ma_env, get_neighbour_md_env
 from env.env_utils import get_metadrive_ma_env_cls
-from train import train
-from utils import (
-    get_train_parser, 
-    get_other_training_resources, 
-    get_args_only_if_test,
-)
 
 
 TEST = False # <~~ Toggle TEST mod here! 
-# TEST = True
-
-ALGO_NAME = "SOCO"
 SCENE = "intersection" if not TEST else "intersection" 
 
-# === Env Seeds ===
-# seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-# seeds = [5000, 6000, 7000]
-seeds = [5000]
-# seeds = [8000, 9000, 10000, 11000, 12000]
 
-# NUM_AGENTS = [4, 8, 16, 30]
-# NUM_AGENTS = [8, 16, 30]
-# NUM_AGENTS = [30]
-NUM_AGENTS = [8]
-NUM_NEIGHBOURS = 4
-EXP_DES = "v1(-a)(mean_nei_r)(svo_init_pi_6)(svo_coeff_1e-1)"
 
 if __name__ == "__main__":
-    args = get_train_parser().parse_args()
-    TEST = TEST or args.test
-    NUM_AGENTS = [args.num_agents] if args.num_agents else NUM_AGENTS
+    env_name, env_cls = get_rllib_compatible_ma_env(
+                            get_neighbour_md_env(
+                            get_metadrive_ma_env_cls(SCENE)), 
+                            return_class=True)
+
+    checkpoint_path = 'exp_SoCO/SOCO_Inter_30agents_v1(-a)(mean_nei_r)(svo_init_pi_6)(svo_coeff_1e-2)/SOCOTrainer_MultiAgentIntersectionEnv_6e8c2_00000_0_num_agents=30,start_seed=5000,nei_rewards_mode=mean_nei_rewards,svo_asymmetry__2023-07-28_17-16-27/checkpoint_001465'
+
+    algo = Algorithm.from_checkpoint(checkpoint_path)
+    print(algo)
+
+    '''
 
     # === Environment ===
     env_name, env_cls = get_rllib_compatible_ma_env(
@@ -73,7 +59,7 @@ if __name__ == "__main__":
                                             num_agents=NUM_AGENTS, 
                                             test=TEST) # env_config will be modified
     
-    stop = {"timesteps_total": 2e6}
+    stop = {"timesteps_total": 1.5e6}
     if args.num_workers:
         num_rollout_workers = args.num_workers
     if TEST:
@@ -147,10 +133,10 @@ if __name__ == "__main__":
         .environment(env=env_name, render_env=False, env_config=env_config, disable_env_checking=False)
         .update_from_dict(dict(
             # == SaCo ==
-            test_new_rewards=False,
+            test_new_rewards=tune.grid_search([True]),
             add_svo_loss=True,
-            svo_loss_coeff=tune.grid_search([1e-1]),
-            svo_asymmetry_loss=False,
+            svo_loss_coeff=tune.grid_search([1]),
+            svo_asymmetry_loss=tune.grid_search([False]),
             use_sa_and_svo=False, # whether use attention backbone or mlp backbone 
             use_fixed_svo=False,
             fixed_svo=math.pi/4, #tune.grid_search([math.pi/4, math.pi/6, math.pi/3]),
@@ -192,3 +178,5 @@ if __name__ == "__main__":
         results_path='exp_SoCO',
         test_mode=TEST,
     )
+
+    '''

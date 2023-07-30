@@ -14,7 +14,7 @@ from metadrive import (
 
 from marlpo.algo.algo_ippo import IPPOConfig, IPPOTrainer
 from marlpo.algo_arippo import ARIPPOConfig, ARIPPOTrainer
-from marlpo.algo_ccppo import CCPPOConfig, CCPPOTrainer
+from marlpo.algo.algo_ccppo import CCPPOConfig, CCPPOTrainer
 from marlpo.algo_arccppo import ARCCPPOConfig, ARCCPPOTrainer
 from marlpo.algo_sappo import SAPPOConfig, SAPPOTrainer
 from marlpo.callbacks import MultiAgentDrivingCallbacks

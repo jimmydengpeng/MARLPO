@@ -20,13 +20,13 @@ ALGO_NAME = "IPPO"
 SCENE = "intersection" if not TEST else "intersection" 
 
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-# seeds = [5000, 6000, 7000]
-seeds = [5000]
+seeds = [6000, 7000]
+# seeds = [000]
 
 # NUM_AGENTS = [4, 8, 16, 30]
 NUM_AGENTS = [4]
 
-EXP_DES = "(obs=107)"
+EXP_DES = "(obs=91)"
 
 
 if __name__ == "__main__":
@@ -50,7 +50,7 @@ if __name__ == "__main__":
             lidar=dict(
                 num_lasers=72, 
                 distance=40, 
-                num_others=tune.grid_search([4]),
+                num_others=tune.grid_search([0]),
             )
         ),
         # == neighbour config ==
@@ -58,7 +58,7 @@ if __name__ == "__main__":
         add_compact_state=False, # add BOTH ego- & nei- compact-state simultaneously
         add_nei_state=False,
         num_neighbours=4,
-        neighbours_distance=20,
+        neighbours_distance=10,
     )
 
     # if TEST 
@@ -70,7 +70,7 @@ if __name__ == "__main__":
                                             num_agents=NUM_AGENTS, 
                                             test=TEST) # env_config will be modified
     
-    stop = {"timesteps_total": 1e6}
+    stop = {"timesteps_total": 2e6}
     if args.num_workers:
         num_rollout_workers = args.num_workers
     if TEST:

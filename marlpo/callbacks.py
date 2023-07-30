@@ -37,7 +37,7 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
         # logger.debug('base_env', type(base_env)) 
         episode.user_data["velocity"] = defaultdict(list)
         episode.user_data["steering"] = defaultdict(list)
-        episode.user_data["step_reward"] = defaultdict(list)
+        episode.user_data["step_reward"] = defaultdict(list) # {'agent0': [0, 1, 1.2, 0.2, ...], ...}
         episode.user_data["acceleration"] = defaultdict(list)
         episode.user_data["cost"] = defaultdict(list)
         episode.user_data["episode_length"] = defaultdict(list)
@@ -105,17 +105,17 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
         for k in keys:
             # info = episode.last_info_for(k)
             info = episode._last_infos[k]
-            arrive_dest = info.get("arrive_dest", False)
 
-            # # Newly introduced metrics
+            # == Newly introduced metrics ==
             # route_completion = info.get("route_completion", -1)
             # track_length = info.get("track_length", -1)
             current_distance = info.get("current_distance", -1)
-            # track_length_list.append(track_length)
             current_distance_list.append(current_distance)
+            # track_length_list.append(track_length)
             # route_completion_list.append(route_completion)
 
-
+            # == Rate ==
+            arrive_dest = info.get("arrive_dest", False)
             crash = info.get("crash", False)
             out_of_road = info.get("out_of_road", False)
             max_step = not (arrive_dest or crash or out_of_road)
@@ -134,14 +134,12 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
         episode.custom_metrics["crash_rate"] = np.mean(crash_list)
         episode.custom_metrics["out_of_road_rate"] = np.mean(out_of_road_list)
         episode.custom_metrics["max_step_rate"] = np.mean(max_step_list)
-        for info_k, info_dict in episode.user_data.items(): # 记录所有user_data项目中所有agent数据的最大、最小、平均值
-            self._add_item(episode, info_k, [vv for v in info_dict.values() for vv in v])
-        agent_cost_list = [sum(episode_costs) for episode_costs in episode.user_data["cost"].values()]
-        episode.custom_metrics["episode_cost"] = np.mean(agent_cost_list)
-        episode.custom_metrics["episode_cost_worst_agent"] = np.min(agent_cost_list)
-        episode.custom_metrics["episode_cost_best_agent"] = np.max(agent_cost_list)
-        episode.custom_metrics["environment_cost_total"] = np.sum(agent_cost_list)
-        episode.custom_metrics["num_active_agents"] = len(agent_cost_list)
+
+        for info_k, info_dict in episode.user_data.items():
+            # 记录所有user_data项目中所有agent数据的最大、最小、平均值
+            if info_k in ['episode_length', 'episode_reward']: continue
+            self._add_item(episode, info_k, [vv for v in info_dict.values() for vv in v]) # info_dict:  {'agent0': [0, 1, 1.2, 0.2, ...], ...}
+
         episode.custom_metrics["episode_length"] = np.mean(
             [ep_len[-1] for ep_len in episode.user_data["episode_length"].values()]
         ) # 所有agent的episode_length的平均
@@ -156,6 +154,35 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
         episode.custom_metrics["{}_max".format(name)] = float(np.max(value_list))
         episode.custom_metrics["{}_mean".format(name)] = float(np.mean(value_list))
         episode.custom_metrics["{}_min".format(name)] = float(np.min(value_list))
+
+
+    def on_postprocess_trajectory(
+        self,
+        *,
+        worker: "RolloutWorker",
+        episode: Episode,
+        agent_id: AgentID,
+        policy_id: PolicyID,
+        policies: Dict[PolicyID, Policy],
+        postprocessed_batch: SampleBatch,
+        original_batches: Dict[AgentID, Tuple[Policy, SampleBatch]],
+        **kwargs,
+    ) -> None: 
+        pass
+        
+
+    def on_learn_on_batch(
+        self, *, policy: Policy, train_batch: SampleBatch, result: dict, **kwargs
+    ) -> None:
+        # pass
+        # infos = train_batch[SampleBatch.INFOS]
+        if 'svo' in train_batch:
+            svo = train_batch['svo']
+            result['svo_mean'] = np.mean(svo)
+            result['svo_max'] = np.max(svo)
+            result['svo_min'] = np.min(svo)
+            result['svo_std'] = np.std(svo)
+
 
     def on_train_result(
         self,

@@ -3,13 +3,6 @@ import gymnasium as gym
 from gymnasium.spaces import Box
 import numpy as np
 
-from marlpo.algo.algo_ippo import IPPOTrainer, IPPOConfig
-from marlpo.callbacks import MultiAgentDrivingCallbacks
-from marlpo.env.env_wrappers import get_ccenv, get_rllib_compatible_gymnasium_api_env
-from copo.torch_copo.utils.train import train
-from copo.torch_copo.utils.utils import get_train_parser
-
-from ray import tune
 from ray.rllib.algorithms.ppo.ppo_torch_policy import PPOTorchPolicy
 from ray.rllib.evaluation.postprocessing import Postprocessing
 from ray.rllib.evaluation.postprocessing import compute_advantages
@@ -21,15 +14,15 @@ from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.policy.view_requirement import ViewRequirement
 from ray.rllib.utils.annotations import override
 from ray.rllib.utils.framework import try_import_torch
-from ray.rllib.utils.torch_utils import convert_to_torch_tensor
 from ray.rllib.utils.torch_utils import (
+    convert_to_torch_tensor,
     explained_variance,
     sequence_mask,
     warn_if_infinite_kl_divergence,
 )
 from ray.rllib.utils.typing import ModelConfigDict, TensorType, TrainerConfigDict
 
-from rich import print, inspect
+from .algo_ippo import IPPOTrainer, IPPOConfig
 
 torch, nn = try_import_torch()
 
@@ -42,7 +35,7 @@ class CCPPOConfig(IPPOConfig):
         super().__init__(algo_class=algo_class or CCPPOTrainer)
         self.counterfactual = True
         self.num_neighbours = 4
-        self.fuse_mode = "mf"  # In ["concat", "mf", "none"]
+        self.fuse_mode = "mf"  # in ["concat", "mf", "none"]
         self.mf_nei_distance = 10
         self.old_value_loss = True
         self.update_from_dict({"model": {"custom_model": "cc_model"}})
@@ -92,8 +85,7 @@ class CCModel(TorchModelV2, nn.Module):
         no_final_linear = model_config.get("no_final_linear")
         self.vf_share_layers = model_config.get("vf_share_layers")
         self.free_log_std = model_config.get("free_log_std")
-        # Generate free-floating bias variables for the second half of
-        # the outputs.
+        # Generate free-floating bias variables for the second half of the outputs.
         if self.free_log_std:
             assert num_outputs % 2 == 0, (
                 "num_outputs must be divisible by two",
@@ -108,11 +100,9 @@ class CCModel(TorchModelV2, nn.Module):
         # ========== Our Modification: We compute the centralized critic obs size here! ==========
         centralized_critic_obs_dim = self.get_centralized_critic_obs_dim()
 
-        # TODO === Fix WARNING catalog.py:617 -- Custom ModelV2 should accept all custom options as **kwargs, instead of expecting them in config['custom_model_config']! === 
         self.fuse_mode = model_kwargs.get("fuse_mode", None)
         self.counterfactual = model_kwargs.get("counterfactual", False)
         self.num_neighbours = model_kwargs.get("num_neighbours", 0)
-
 
         # Create layers 0 to second-last.
         for size in hiddens[:-1]:
@@ -197,7 +187,6 @@ class CCModel(TorchModelV2, nn.Module):
         self.view_requirements[CENTRALIZED_CRITIC_OBS] = ViewRequirement(
             space=Box(obs_space.low[0], obs_space.high[0], shape=(centralized_critic_obs_dim, ))
         )
-
         self.view_requirements[SampleBatch.ACTIONS] = ViewRequirement(space=action_space)
 
     def get_centralized_critic_obs_dim(self):
@@ -505,48 +494,3 @@ class CCPPOTrainer(IPPOTrainer):
         assert config["framework"] == "torch"
         return CCPPOPolicy
 
-
-def _test():
-    # Testing only!
-    from metadrive.envs.marl_envs import MultiAgentRoundaboutEnv
-
-    parser = get_train_parser()
-    args = parser.parse_args()
-    stop = {"timesteps_total": 200_0000}
-    exp_name = "test_mappo" if not args.exp_name else args.exp_name
-    config = dict(
-        env=get_ccppo_env(MultiAgentRoundaboutEnv),
-        env_config=dict(
-            start_seed=tune.grid_search([5000]),
-            num_agents=10,
-        ),
-        num_sgd_iter=1,
-        rollout_fragment_length=200,
-        train_batch_size=400,
-        sgd_minibatch_size=256,
-        num_workers=0,
-        # **{COUNTERFACTUAL: tune.grid_search([True, False])},
-        **{COUNTERFACTUAL: tune.grid_search([
-            True,
-        ])},
-        # fuse_mode=tune.grid_search(["concat", "mf"])
-        fuse_mode=tune.grid_search(["mf"])
-    )
-    results = train(
-        CCPPOTrainer,
-        config=config,  # Do not use validate_config_add_multiagent here!
-        checkpoint_freq=0,  # Don't save checkpoint is set to 0.
-        keep_checkpoints_num=0,
-        stop=stop,
-        num_gpus=args.num_gpus,
-        num_seeds=1,
-        max_failures=0,
-        exp_name=exp_name,
-        custom_callback=MultiAgentDrivingCallbacks,
-        test_mode=True,
-        local_mode=True
-    )
-
-
-if __name__ == "__main__":
-    _test()

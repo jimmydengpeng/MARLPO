@@ -30,7 +30,7 @@ seeds = [5000]
 # NUM_AGENTS = [30]
 NUM_AGENTS = [8]
 NUM_NEIGHBOURS = 4
-EXP_DES = "v1(-a)(mean_nei_r)(svo_init_pi_6)(svo_coeff_1e-1)"
+EXP_DES = "v1(-a)(mean_nei_r)(svo_init_pi_6)(svo_coeff_1)(new_rewards)"
 
 if __name__ == "__main__":
     args = get_train_parser().parse_args()
@@ -73,7 +73,7 @@ if __name__ == "__main__":
                                             num_agents=NUM_AGENTS, 
                                             test=TEST) # env_config will be modified
     
-    stop = {"timesteps_total": 2e6}
+    stop = {"timesteps_total": 1.5e6}
     if args.num_workers:
         num_rollout_workers = args.num_workers
     if TEST:
@@ -147,10 +147,10 @@ if __name__ == "__main__":
         .environment(env=env_name, render_env=False, env_config=env_config, disable_env_checking=False)
         .update_from_dict(dict(
             # == SaCo ==
-            test_new_rewards=False,
+            test_new_rewards=tune.grid_search([True]),
             add_svo_loss=True,
-            svo_loss_coeff=tune.grid_search([1e-1]),
-            svo_asymmetry_loss=False,
+            svo_loss_coeff=tune.grid_search([1]),
+            svo_asymmetry_loss=tune.grid_search([False]),
             use_sa_and_svo=False, # whether use attention backbone or mlp backbone 
             use_fixed_svo=False,
             fixed_svo=math.pi/4, #tune.grid_search([math.pi/4, math.pi/6, math.pi/3]),

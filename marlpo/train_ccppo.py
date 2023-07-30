@@ -10,7 +10,7 @@ from metadrive import (
 
 # from copo.torch_copo.algo_ippo import IPPOTrainer
 # from copo.torch_copo.utils.callbacks import MultiAgentDrivingCallbacks
-from marlpo.algo_ccppo import CCPPOConfig, CCPPOTrainer, get_ccppo_env
+from marlpo.algo.algo_ccppo import CCPPOConfig, CCPPOTrainer, get_ccppo_env
 
 from marlpo.train.train import train
 from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env

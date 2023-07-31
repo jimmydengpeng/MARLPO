@@ -320,10 +320,6 @@ def mean_field_ccppo_process(policy, sample_batch, other_agent_batches, odim, ad
     return sample_batch
 
 
-def get_ccppo_env(env_class):
-    return get_rllib_compatible_gymnasium_api_env(get_ccenv(env_class))
-
-
 class CCPPOPolicy(PPOTorchPolicy):
     def extra_action_out(self, input_dict, state_batches, model, action_dist):
         return {}

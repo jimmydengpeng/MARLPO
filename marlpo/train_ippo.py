@@ -8,8 +8,8 @@ from callbacks import MultiAgentDrivingCallbacks
 from train import train
 from utils import (
     get_train_parser, 
-    get_other_training_resources, 
-    get_args_only_if_test,
+    get_training_resources, 
+    get_other_training_configs,
 )
 
 
@@ -20,8 +20,7 @@ ALGO_NAME = "IPPO"
 SCENE = "intersection" if not TEST else "intersection" 
 
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-seeds = [6000, 7000]
-# seeds = [000]
+SEEDS = [6000, 7000]
 
 # NUM_AGENTS = [4, 8, 16, 30]
 NUM_AGENTS = [4]
@@ -33,7 +32,14 @@ if __name__ == "__main__":
     args = get_train_parser().parse_args()
     TEST = TEST or args.test
     NUM_AGENTS = [args.num_agents] if args.num_agents else NUM_AGENTS
-
+    # if TEST 
+    stop, exp_name, n_rlt_workers, seeds = get_other_training_configs(
+                                                algo_name=ALGO_NAME, 
+                                                exp_des=EXP_DES, 
+                                                scene=SCENE, 
+                                                num_agents=NUM_AGENTS,
+                                                seeds=SEEDS, 
+                                                test=TEST) 
     # === Environment ===
     env_name, env_cls = get_rllib_compatible_env(
                             get_metadrive_ma_env_cls(SCENE), 
@@ -50,24 +56,12 @@ if __name__ == "__main__":
                 num_lasers=72, 
                 distance=40, 
                 num_others=tune.grid_search([0]),
-            )
-        ),
-    )
-
-    # if TEST 
-    stop, exp_name, num_rollout_workers = get_args_only_if_test(
-                                            algo_name=ALGO_NAME, 
-                                            env_config=env_config, 
-                                            exp_des=EXP_DES, 
-                                            scene=SCENE, 
-                                            num_agents=NUM_AGENTS, 
-                                            test=TEST) # env_config will be modified
+        )))
     
     stop = {"timesteps_total": 2e6}
     if args.num_workers:
-        num_rollout_workers = args.num_workers
+        n_rlt_workers = args.num_workers
     if TEST:
-        # stop = {"timesteps_total": 3e6}
         stop = {"training_iteration": 1}
         # env_config['num_agents'] = 30
   
@@ -77,10 +71,10 @@ if __name__ == "__main__":
         IPPOConfig()
         .framework('torch')
         .resources(
-            **get_other_training_resources()
+            **get_training_resources()
         )
         .rollouts(
-            num_rollout_workers=num_rollout_workers,
+            num_rollout_workers=n_rlt_workers,
         )
         .callbacks(MultiAgentDrivingCallbacks)
         .training(

@@ -1,42 +1,46 @@
 import math
 from ray import tune
 
-from algo import SOCOConfig, SOCOTrainer
+from algo import SOCODCConfig, SOCODCTrainer
 from callbacks import MultiAgentDrivingCallbacks
 from env.env_wrappers import get_rllib_compatible_env, get_neighbour_md_env
 from env.env_utils import get_metadrive_ma_env_cls
 from train import train
 from utils import (
     get_train_parser, 
-    get_other_training_resources, 
-    get_args_only_if_test,
+    get_training_resources, 
+    get_other_training_configs,
 )
 
 
 TEST = False # <~~ Toggle TEST mod here! 
 # TEST = True
 
-ALGO_NAME = "SOCO"
+ALGO_NAME = "SOCO_DC"
 SCENE = "intersection" if not TEST else "intersection" 
 
 # === Env Seeds ===
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
 # seeds = [5000, 6000, 7000]
-seeds = [5000]
-# seeds = [8000, 9000, 10000, 11000, 12000]
+SEEDS = [5000]
 
-# NUM_AGENTS = [4, 8, 16, 30]
-# NUM_AGENTS = [8, 16, 30]
 # NUM_AGENTS = [30]
 NUM_AGENTS = [8]
 NUM_NEIGHBOURS = 4
-EXP_DES = "v1(-a)(mean_nei_r)(svo_init_pi_6)(svo_coeff_1)(new_rewards)"
+EXP_DES = "v1(-a)(mean_nei_r)(svo_init_0)(svo_coeff_1)"
 
 if __name__ == "__main__":
     args = get_train_parser().parse_args()
     TEST = TEST or args.test
     NUM_AGENTS = [args.num_agents] if args.num_agents else NUM_AGENTS
-
+    # if TEST 
+    stop, exp_name, num_rollout_workers, seeds = get_other_training_configs(
+                                                    algo_name=ALGO_NAME, 
+                                                    exp_des=EXP_DES, 
+                                                    scene=SCENE, 
+                                                    num_agents=NUM_AGENTS,
+                                                    seeds=SEEDS, 
+                                                    test=TEST) # env_config will be modified
     # === Environment ===
     env_name, env_cls = get_rllib_compatible_env(
                             get_neighbour_md_env(
@@ -64,31 +68,23 @@ if __name__ == "__main__":
         neighbours_distance=10,
     )
 
-    # if TEST
-    stop, exp_name, num_rollout_workers = get_args_only_if_test(
-                                            algo_name=ALGO_NAME, 
-                                            env_config=env_config, 
-                                            exp_des=EXP_DES, 
-                                            scene=SCENE, 
-                                            num_agents=NUM_AGENTS, 
-                                            test=TEST) # env_config will be modified
     
-    stop = {"timesteps_total": 1.5e6}
+    stop = {"timesteps_total": 1.2e6}
     if args.num_workers:
         num_rollout_workers = args.num_workers
     if TEST:
         # stop = {"timesteps_total": 3e6}
-        stop = {"training_iteration": 10}
+        stop = {"training_iteration": 3}
     if TEST and not args.num_agents:
-        env_config['num_agents'] = 30
+        env_config['num_agents'] = 5
 
 
     # === Algo Setting ===
     algo_config = (
-        SOCOConfig()
+        SOCODCConfig()
         .framework('torch')
         .resources(
-            **get_other_training_resources()
+            **get_training_resources()
         )
         .rollouts(
             num_rollout_workers=num_rollout_workers,
@@ -141,24 +137,26 @@ if __name__ == "__main__":
                     # svo_initializer='ortho',
                 ),
                 free_log_std=False,
-            )
+            ),
+            _enable_learner_api=False,
         )
         .rl_module(_enable_rl_module_api=False)
-        .environment(env=env_name, render_env=False, env_config=env_config, disable_env_checking=False)
+        .environment(env=env_name, render_env=False, env_config=env_config, disable_env_checking=True)
         .update_from_dict(dict(
             # == SaCo ==
-            test_new_rewards=tune.grid_search([True]),
+            use_ext_svo=tune.grid_search([True, False]),
+            test_new_rewards=False,
             add_svo_loss=True,
             svo_loss_coeff=tune.grid_search([1]),
-            svo_asymmetry_loss=tune.grid_search([False]),
+            svo_asymmetry_loss=False,
             use_sa_and_svo=False, # whether use attention backbone or mlp backbone 
             use_fixed_svo=False,
             fixed_svo=math.pi/4, #tune.grid_search([math.pi/4, math.pi/6, math.pi/3]),
             use_social_attention=True, # TODO
             use_svo=True, #tune.grid_search([True, False]), # whether or not to use svo to change reward, if False, use original reward
-            svo_init_value=tune.grid_search(['pi/6']), # in [ '0', 'pi/4', 'pi/2', 'random' ]
+            svo_init_value=tune.grid_search(['0']), # in [ '0', 'pi/4', 'pi/2', 'random' ]
             svo_mode='full', #tune.grid_search(['full', 'restrict']),
-            nei_rewards_mode=tune.grid_search(['mean_nei_rewards']), #'attentive_one_nei_reward',
+            nei_rewards_mode='mean_nei_rewards', #'attentive_one_nei_reward',
             sp_select_mode='numerical', # only work if use onehot_attention!
             # sp_select_mode=tune.grid_search(['bincount', 'numerical']), # only work if use onehot_attention!
             # nei_rewards_mode=tune.grid_search([
@@ -168,7 +166,7 @@ if __name__ == "__main__":
             #     'attentive_one_nei_reward',   #  │
             #     # 'attentive_all_nei_reward', # ─╯
             # ]),
-            norm_adv=tune.grid_search([True]),
+            norm_adv=tune.grid_search([True, False]),
             # == Common ==
             old_value_loss=False,
             # old_value_loss=True,
@@ -182,7 +180,7 @@ if __name__ == "__main__":
 
     # === Launch training ===
     train(
-        SOCOTrainer,
+        SOCODCTrainer,
         config=algo_config,
         stop=stop,
         exp_name=exp_name,

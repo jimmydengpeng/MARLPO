@@ -8,8 +8,8 @@ from env.env_utils import get_metadrive_ma_env_cls
 from train import train
 from utils import (
     get_train_parser, 
-    get_other_training_resources, 
-    get_args_only_if_test,
+    get_training_resources, 
+    get_other_training_configs,
 )
 
 
@@ -22,11 +22,9 @@ SCENE = "intersection" if not TEST else "intersection"
 # === Env Seeds ===
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
 # seeds = [5000, 6000, 7000]
-seeds = [5000]
+SEEDS = [5000]
 # seeds = [8000, 9000, 10000, 11000, 12000]
 
-# NUM_AGENTS = [4, 8, 16, 30]
-# NUM_AGENTS = [8, 16, 30]
 # NUM_AGENTS = [30]
 NUM_AGENTS = [8]
 NUM_NEIGHBOURS = 4
@@ -37,13 +35,20 @@ if __name__ == "__main__":
     TEST = TEST or args.test
     NUM_AGENTS = [args.num_agents] if args.num_agents else NUM_AGENTS
 
-    # === Environment ===
+    stop, exp_name, num_rollout_workers, seeds = get_other_training_configs(
+                                                algo_name=ALGO_NAME, 
+                                                exp_des=EXP_DES, 
+                                                scene=SCENE, 
+                                                num_agents=NUM_AGENTS,
+                                                seeds=SEEDS, 
+                                                test=TEST) 
+    # == Get Environment ==
     env_name, env_cls = get_rllib_compatible_env(
                             get_neighbour_md_env(
                             get_metadrive_ma_env_cls(SCENE)), 
                             return_class=True)
 
-    # === Environmental Setting ===
+    # == Environmental Setting ==
     env_config = dict(
         num_agents=tune.grid_search(NUM_AGENTS),
         return_single_space=True,
@@ -64,15 +69,6 @@ if __name__ == "__main__":
         neighbours_distance=10,
     )
 
-    # if TEST
-    stop, exp_name, num_rollout_workers = get_args_only_if_test(
-                                            algo_name=ALGO_NAME, 
-                                            env_config=env_config, 
-                                            exp_des=EXP_DES, 
-                                            scene=SCENE, 
-                                            num_agents=NUM_AGENTS, 
-                                            test=TEST) # env_config will be modified
-    
     stop = {"timesteps_total": 2e6}
     if args.num_workers:
         num_rollout_workers = args.num_workers
@@ -88,7 +84,7 @@ if __name__ == "__main__":
         SOCOConfig()
         .framework('torch')
         .resources(
-            **get_other_training_resources()
+            **get_training_resources()
         )
         .rollouts(
             num_rollout_workers=num_rollout_workers,
@@ -98,13 +94,9 @@ if __name__ == "__main__":
         )
         .training(
             train_batch_size=1024,
-            # train_batch_size=512,
-            # train_batch_size=256,
             gamma=0.99,
             lr=3e-4,
             sgd_minibatch_size=512,
-            # sgd_minibatch_size=128,
-            # sgd_minibatch_size=64,
             num_sgd_iter=5,
             lambda_=0.95,
             model=dict(
@@ -141,15 +133,16 @@ if __name__ == "__main__":
                     # svo_initializer='ortho',
                 ),
                 free_log_std=False,
-            )
+            ),
+            _enable_learner_api=False,
         )
         .rl_module(_enable_rl_module_api=False)
-        .environment(env=env_name, render_env=False, env_config=env_config, disable_env_checking=False)
+        .environment(env=env_name, render_env=False, env_config=env_config, disable_env_checking=True)
         .update_from_dict(dict(
             # == SaCo ==
             test_new_rewards=False,
             add_svo_loss=True,
-            svo_loss_coeff=tune.grid_search([1e-1]),
+            svo_loss_coeff=tune.grid_search([1]),
             svo_asymmetry_loss=False,
             use_sa_and_svo=False, # whether use attention backbone or mlp backbone 
             use_fixed_svo=False,
@@ -168,7 +161,7 @@ if __name__ == "__main__":
             #     'attentive_one_nei_reward',   #  │
             #     # 'attentive_all_nei_reward', # ─╯
             # ]),
-            norm_adv=tune.grid_search([True]),
+            norm_adv=tune.grid_search([True, False]),
             # == Common ==
             old_value_loss=False,
             # old_value_loss=True,

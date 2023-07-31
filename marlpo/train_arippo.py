@@ -12,7 +12,7 @@ from marlpo.train.train import train
 from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env
 # from copo.torch_copo.utils.utils import get_train_parser
 from marlpo.callbacks import MultiAgentDrivingCallbacks
-from marlpo.utils.utils import get_other_training_resources, get_num_workers
+from marlpo.utils.utils import get_training_resources, get_num_workers
 
     
 # TEST = False
@@ -89,7 +89,7 @@ if __name__ == "__main__":
         ARIPPOConfig()
         .framework('torch')
         .resources(
-            **get_other_training_resources()
+            **get_training_resources()
         )
         .rollouts(
             num_rollout_workers=num_rollout_workers,

@@ -1,34 +1,28 @@
 from typing import List, Tuple
 import math
 import numpy as np
+import gymnasium as gym
+
 from ray.rllib.algorithms.ppo.ppo import PPO, PPOConfig
 from ray.rllib.algorithms.ppo.ppo_torch_policy import PPOTorchPolicy
-from ray.rllib.evaluation.postprocessing import Postprocessing
-from ray.rllib.models.catalog import ModelCatalog
+from ray.rllib.evaluation.postprocessing import compute_advantages, discount_cumsum, Postprocessing
 from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.policy.sample_batch import SampleBatch
-from ray.rllib.utils.annotations import (
-    DeveloperAPI,
-    OverrideToImplementCustomLogic,
-    OverrideToImplementCustomLogic_CallToSuperRecommended,
-    is_overridden,
-    override,
-)
+from ray.rllib.policy.view_requirement import ViewRequirement
+from ray.rllib.models.catalog import ModelCatalog
+from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
+from ray.rllib.models.torch.misc import SlimFC, AppendBiasLayer, normc_initializer
+from ray.rllib.utils.annotations import override
 from ray.rllib.utils.framework import try_import_torch
-from ray.rllib.utils.torch_utils import (
-    explained_variance,
-    sequence_mask,
-    warn_if_infinite_kl_divergence,
-)
+from ray.rllib.utils.sgd import standardized
+from ray.rllib.utils.torch_utils import explained_variance, sequence_mask, warn_if_infinite_kl_divergence
+from ray.rllib.utils.typing import Dict, TensorType, List, Tuple, ModelConfigDict
 
-from models.soco_model import SOCOModel, SOCOFCNModel
 from utils.debug import printPanel, reduce_window_width, WINDOWN_WIDTH_REDUCED
 reduce_window_width(WINDOWN_WIDTH_REDUCED, __file__)
 
 torch, nn = try_import_torch()
 
-ModelCatalog.register_custom_model("soco_model", SOCOModel)
-ModelCatalog.register_custom_model("soco_fcn_model", SOCOFCNModel)
 
 ORIGINAL_REWARDS = "original_rewards"
 NEI_REWARDS = "nei_rewards"
@@ -36,6 +30,11 @@ SVO = 'svo'
 NEXT_VF_PREDS = 'next_vf_preds'
 HAS_NEIGHBOURS = 'has_neighbours'
 ATTENTION_MAXTRIX = 'attention_maxtrix'
+
+NEI_REWARDS = "nei_rewards"
+NEI_VALUES = "nei_values"
+NEI_ADVANTAGE = "nei_advantage"
+NEI_TARGET = "nei_target"
 
 NEI_REWARDS_MODE = 'nei_rewards_mode'
 
@@ -46,11 +45,10 @@ ATTENTIVE_ONE_NEI_REWARD = 'attentive_one_nei_reward' #  │
 ATTENTIVE_ALL_NEI_REWARD = 'attentive_all_nei_reward' # ─╯
 
 
-
-class SOCOConfig(PPOConfig):
+class SOCODCConfig(PPOConfig):
     def __init__(self, algo_class=None):
         """Initializes a PPOConfig instance."""
-        super().__init__(algo_class=algo_class or SOCOTrainer)
+        super().__init__(algo_class=algo_class or SOCODCTrainer)
         # IPPO params
         self.vf_clip_param = 100
         self.old_value_loss = True
@@ -78,7 +76,6 @@ class SOCOConfig(PPOConfig):
         self.sp_select_mode='numerical'
         self.norm_adv=True
         
-     
 
     def validate(self):
         super().validate()
@@ -120,7 +117,7 @@ class SOCOConfig(PPOConfig):
         if self.use_sa_and_svo:
             self.update_from_dict({"model": {"custom_model": "soco_model"}})
         else:
-            self.update_from_dict({"model": {"custom_model": "soco_fcn_model"}})
+            self.update_from_dict({"model": {"custom_model": "soco_dc_model"}})
 
 
         msg = {}
@@ -129,9 +126,294 @@ class SOCOConfig(PPOConfig):
         # printPanel(msg, title='SAPPOConfig validate', color='green')
 
 
+class SOCODCModel(TorchModelV2, nn.Module):
+    """Generic fully connected network."""
+
+    def __init__(
+        self,
+        obs_space: gym.spaces.Space,
+        action_space: gym.spaces.Space,
+        num_outputs: int,
+        model_config: ModelConfigDict,
+        name: str,
+    ):
+        TorchModelV2.__init__(
+            self, obs_space, action_space, num_outputs, model_config, name
+        )
+        nn.Module.__init__(self)
+
+        self.custom_model_config = model_config['custom_model_config']
+
+        hiddens = list(model_config.get("fcnet_hiddens", [])) + list(
+            model_config.get("post_fcnet_hiddens", [])
+        )
+        activation = model_config.get("fcnet_activation") # tanh by default
+        if not model_config.get("fcnet_hiddens", []):
+            activation = model_config.get("post_fcnet_activation")
+        no_final_linear = model_config.get("no_final_linear")
+        self.vf_share_layers = model_config.get("vf_share_layers")
+        self.free_log_std = model_config.get("free_log_std")
+        # Generate free-floating bias variables for the second half of
+        # the outputs.
+        if self.free_log_std:
+            assert num_outputs % 2 == 0, (
+                "num_outputs must be divisible by two",
+                num_outputs,
+            )
+            num_outputs = num_outputs // 2
+
+        layers = []
+        prev_layer_size = int(np.product(obs_space.shape))
+        self._logits = None
+
+        # Create layers 0 to second-last.
+        for size in hiddens[:-1]:
+            layers.append(
+                SlimFC(
+                    in_size=prev_layer_size,
+                    out_size=size,
+                    initializer=normc_initializer(1.0),
+                    activation_fn=activation,
+                )
+            )
+            prev_layer_size = size
+
+        # The last layer is adjusted to be of size num_outputs, but it's a
+        # layer with activation.
+        if no_final_linear and num_outputs:
+            layers.append(
+                SlimFC(
+                    in_size=prev_layer_size,
+                    out_size=num_outputs,
+                    initializer=normc_initializer(1.0),
+                    activation_fn=activation,
+                )
+            )
+            prev_layer_size = num_outputs
+        # Finish the layers with the provided sizes (`hiddens`), plus -
+        # iff num_outputs > 0 - a last linear layer of size num_outputs.
+        else:
+            if len(hiddens) > 0:
+                layers.append(
+                    SlimFC(
+                        in_size=prev_layer_size,
+                        out_size=hiddens[-1],
+                        initializer=normc_initializer(1.0),
+                        activation_fn=activation,
+                    )
+                )
+                prev_layer_size = hiddens[-1]
+            if num_outputs:
+                self._logits = SlimFC(
+                    in_size=prev_layer_size,
+                    out_size=num_outputs,
+                    initializer=normc_initializer(0.01),
+                    activation_fn=None,
+                )
+            else:
+                self.num_outputs = ([int(np.product(obs_space.shape))] + hiddens[-1:])[
+                    -1
+                ]
+
+        # Layer to add the log std vars to the state-dependent means.
+        if self.free_log_std and self._logits:
+            self._append_free_log_std = AppendBiasLayer(num_outputs)
+
+        self._hidden_layers = nn.Sequential(*layers)
+
+        # ======================= Critic ===============================
+        self._value_branch_separate = None
+        if not self.vf_share_layers: # false
+            # Build a parallel set of hidden layers for the value net.
+            prev_vf_layer_size = int(np.product(obs_space.shape))
+            vf_layers = []
+            for size in hiddens:
+                vf_layers.append(
+                    SlimFC(
+                        in_size=prev_vf_layer_size,
+                        out_size=size,
+                        activation_fn=activation,
+                        initializer=normc_initializer(1.0),
+                    )
+                )
+                prev_vf_layer_size = size
+            self._value_branch_separate = nn.Sequential(*vf_layers)
+
+        self._value_branch = SlimFC(
+            in_size=prev_layer_size,
+            out_size=1,
+            initializer=normc_initializer(0.01),
+            activation_fn=None,
+        )
+
+        # ====================== Neighbour Critic =======================
+        in_size = int(np.product(obs_space.shape))
+        # Build neighbours value function
+        self.nei_value_network = self.build_one_value_network(
+            in_size=in_size, hiddens=hiddens, activation=activation
+        )
+
+        # ============================== SVO ============================
+        prev_layer_size = int(np.product(obs_space.shape))
+        if self.custom_model_config.get('uniform_init_svo', False):
+            svo_initializer_1 = None
+            svo_initializer_2 = None
+        else:
+            svo_initializer_1 = normc_initializer(1.0)
+            svo_initializer_2 = normc_initializer(0.01)
+
+        svo_layers = []
+        for size in hiddens:
+            svo_layers.append(
+                SlimFC(
+                    in_size=prev_layer_size,
+                    out_size=size,
+                    initializer=svo_initializer_1,
+                    activation_fn=activation,
+                )
+            )
+            prev_layer_size = size
+
+        svo_layers.append(
+            SlimFC(
+                in_size=prev_layer_size,
+                out_size=1,
+                initializer=svo_initializer_2,
+                activation_fn=None,
+            )
+        )
+        self._svo_layer = nn.Sequential(*svo_layers)
+
+        # Holds the current "base" output (before logits layer).
+        self._features = None
+        # Holds the last input, in case value branch is separate.
+        self._last_flat_in = None
+
+        self.view_requirements[SVO] = ViewRequirement()
+        self.view_requirements[ORIGINAL_REWARDS] = ViewRequirement(data_col=SampleBatch.REWARDS, shift=0)
+        self.view_requirements[HAS_NEIGHBOURS] = ViewRequirement()
+        # self.view_requirements[ATTENTION_MAXTRIX] = ViewRequirement()
+
+        self.view_requirements[NEI_REWARDS] = ViewRequirement()
+        self.view_requirements[NEI_VALUES] = ViewRequirement()
+        self.view_requirements[NEI_TARGET] = ViewRequirement()
+        self.view_requirements[NEI_ADVANTAGE] = ViewRequirement()
 
 
-class SOCOPolicy(PPOTorchPolicy):
+    def build_one_value_network(self, in_size, activation, hiddens):
+        assert in_size > 0
+        vf_layers = []
+        for size in hiddens:
+            vf_layers.append(
+                SlimFC(
+                    in_size=in_size, 
+                    out_size=size, 
+                    activation_fn=activation, 
+                    initializer=normc_initializer(1.0)
+                ))
+            in_size = size
+        vf_layers.append(
+            SlimFC(
+                in_size=in_size, 
+                out_size=1, 
+                initializer=normc_initializer(0.01), 
+                activation_fn=None
+            ))
+        return nn.Sequential(*vf_layers)
+
+
+    @override(TorchModelV2)
+    def forward(
+        self,
+        input_dict: Dict[str, TensorType],
+        state: List[TensorType],
+        seq_lens: TensorType,
+    ) -> Tuple[TensorType, List[TensorType]]:
+        obs = input_dict["obs_flat"].float()
+        self._last_flat_in = obs.reshape(obs.shape[0], -1)
+        self._features = self._hidden_layers(self._last_flat_in)
+        logits = self._logits(self._features) if self._logits else self._features
+        if self.free_log_std:
+            logits = self._append_free_log_std(logits)
+        return logits, state
+
+
+    @override(TorchModelV2)
+    def value_function(self) -> TensorType:
+        assert self._features is not None, "must call forward() first"
+        if self._value_branch_separate:
+            out = self._value_branch(
+                self._value_branch_separate(self._last_flat_in)
+            ).squeeze(1)
+        else:
+            out = self._value_branch(self._features).squeeze(1)
+        return out
+
+
+    def get_nei_value(self):
+        assert self._features is not None, "must call forward() first"
+        return torch.reshape(self.nei_value_network(self._last_flat_in), [-1])
+
+
+    def svo_function(self) -> TensorType:
+        assert self._features is not None, "must call forward() first"
+        svo = self._svo_layer(self._last_flat_in).squeeze(1)
+        # svo = torch.tanh(svo)
+        # svo = torch.relu(svo)
+        msg = {}
+        msg['svo len'] = len(svo)
+        msg['svo std/mean'] = torch.std_mean(svo)
+        # printPanel(msg)
+        return svo
+
+
+    def check_params_updated(self, name: str):
+
+        def check_parameters_updated(model: nn.modules):
+            for param in model.parameters():
+                if param.requires_grad and param.grad is not None:
+                    return True, param.grad
+            return False, None
+
+        assert name in ['svo', 'nei_critic']
+        if name == 'svo':
+            layers = getattr(self, f'_svo_layer')
+        elif name == 'nei_critic':
+            layers = getattr(self, f'nei_value_network')
+
+        res, grad = check_parameters_updated(layers)
+
+        # res, diff = self._check_params_equal(last_params, layers.state_dict())
+        # res = not res
+        printPanel(
+            {'params updated': res,
+             'params slice': list(layers.parameters())[-2][-1][-5:],
+             'params grad': grad,
+             'grad std/mean': None if grad == None else torch.std_mean(grad),
+            }, 
+            title=f'check_{name}_params'
+        )
+
+
+# Trick 8: orthogonal initialization
+def orthogonal_initializer(gain=1.0):
+    def orthogonal_init(weight):
+        nn.init.orthogonal_(weight, gain=gain)
+    return orthogonal_init
+
+ModelCatalog.register_custom_model("soco_dc_model", SOCODCModel)
+
+
+def compute_nei_advantage(rollout: SampleBatch, last_r: float, gamma: float = 0.9, lambda_: float = 1.0):
+    vpred_t = np.concatenate([rollout[NEI_VALUES], np.array([last_r])])
+    delta_t = (rollout[NEI_REWARDS] + gamma * vpred_t[1:] - vpred_t[:-1])
+    rollout[NEI_ADVANTAGE] = discount_cumsum(delta_t, gamma * lambda_)
+    rollout[NEI_TARGET] = (rollout[NEI_ADVANTAGE] + rollout[NEI_VALUES]).astype(np.float32)
+    rollout[NEI_ADVANTAGE] = rollout[NEI_ADVANTAGE].astype(np.float32)
+    return rollout
+
+
+class SOCODCPolicy(PPOTorchPolicy):
     # @override(PPOTorchPolicy)
     def extra_action_out(self, input_dict, state_batches, model, action_dist):
         if self.config['use_sa_and_svo']:
@@ -160,6 +442,7 @@ class SOCOPolicy(PPOTorchPolicy):
                 
                 return {
                     SampleBatch.VF_PREDS: model.value_function(),
+                    NEI_VALUES: model.get_nei_value(),
                     SVO: svo,
                 }
 
@@ -275,19 +558,27 @@ class SOCOPolicy(PPOTorchPolicy):
     def prepare_svo(self, svo, min_=None, max_=None, mode='full'):
         """
         Args: 
-            svo: original output of model's svo_function()
+            svo: original output of model's svo_function(), (-oo, +oo)
         """
         # model.check_params_updated('_svo')
-        if self.config['svo_init_value'] == 'pi/2':
-            svo = svo + 2
-        elif self.config['svo_init_value'] == '0':
-            svo = svo - 2
-        elif self.config['svo_init_value'] == 'pi/6':
-            svo = svo - 0.5
-        elif self.config['svo_init_value'] == 'pi/4':
-            pass
-        svo = (torch.tanh(svo) + 1) * torch.pi/4 # (0, pi/4, pi/2) 
-        # for last activation of svo_head is relu, svo in [0, +oo)
+        if self.config.get('use_ext_svo', False):
+            if self.config['svo_init_value'] == '0':
+                svo = torch.clamp(torch.tanh(svo), -1 + 1e-6, 1 - 1e-6) * torch.pi/2 # (0, pi/4, pi/2) 
+            else: 
+                raise NotImplementedError
+            
+        else:
+            # TODO
+            if self.config['svo_init_value'] == 'pi/2':
+                svo = svo + 2
+            elif self.config['svo_init_value'] == '0':
+                svo = svo - 2
+            elif self.config['svo_init_value'] == 'pi/6':
+                svo = svo - 0.5
+            elif self.config['svo_init_value'] == 'pi/4':
+                pass
+            svo = (torch.tanh(svo) + 1) * torch.pi/4 # (0, pi/4, pi/2) 
+        
         return svo
 
     @override(PPOTorchPolicy)
@@ -305,6 +596,7 @@ class SOCOPolicy(PPOTorchPolicy):
         with torch.no_grad():
             sample_batch[ORIGINAL_REWARDS] = sample_batch[SampleBatch.REWARDS].copy()
             sample_batch[NEI_REWARDS] = sample_batch[SampleBatch.REWARDS].copy() # for init ppo
+            # sample_batch[NEI_VALUES] = self.model.get_nei_value().cpu().detach().numpy().astype(np.float32)
 
             if episode: # filter _initialize_loss_from_dummy_batch()
                 msg['*'] = '*'
@@ -352,24 +644,36 @@ class SOCOPolicy(PPOTorchPolicy):
             ### end if self.config['use_svo']:
 
             if sample_batch[SampleBatch.DONES][-1]:
-                last_r = 0.0
+                last_r = last_nei_r = 0.0
             else:
                 last_r = sample_batch[SampleBatch.VF_PREDS][-1]
+                last_nei_r = sample_batch[NEI_VALUES][-1]
+
+            sample_batch = compute_advantages(
+                sample_batch,
+                last_r,
+                self.config["gamma"],
+                self.config["lambda"],
+                use_gae=self.config["use_gae"],
+                use_critic=self.config.get("use_critic", True)
+            )
+
+            sample_batch = compute_nei_advantage(
+                sample_batch, 
+                last_nei_r, 
+                self.config["gamma"], 
+                self.config["lambda"],
+            )
+
+            # if isinstance(sample_batch[SampleBatch.INFOS][0], dict):
+            #     print('1------------', sample_batch[SampleBatch.INFOS][0]['agent_id'])
+            # else:
+            #     print('2------------')
+
 
             # == 记录 rollout 时的 V 值 == 
             vpred_t = np.concatenate([sample_batch[SampleBatch.VF_PREDS], np.array([last_r])])
             sample_batch[NEXT_VF_PREDS] = vpred_t[1:].copy()
-
-            # batch = compute_advantages(
-            #     sample_batch,
-            #     last_r,
-            #     self.config["gamma"],
-            #     self.config["lambda"],
-            #     use_gae=self.config["use_gae"],
-            #     use_critic=self.config.get("use_critic", True)
-            # )
-            # if self.config['norm_adv']:
-            #     normalize_advantage(batch)
 
         return sample_batch
 
@@ -388,9 +692,8 @@ class SOCOPolicy(PPOTorchPolicy):
         msg['is_training'] = train_batch.is_training
         msg_tr = {}
 
-        # model.check_head_params_updated('policy')
-        # model.check_head_params_updated('critic')
-        # model.check_head_params_updated('svo')
+        # model.check_params_updated('_svo')
+        # model.check_params_updated('nei_critic')
 
         # === actor loss ===
         logits, state = model(train_batch)
@@ -465,30 +768,28 @@ class SOCOPolicy(PPOTorchPolicy):
 
                 # printPanel(msg, title='in loss', raw_output=True)
                 
-                old_r = train_batch[ORIGINAL_REWARDS]
-                nei_r = train_batch[NEI_REWARDS] 
-                # 重新计算加权奖励
-                rewards = torch.cos(svo) * old_r + torch.sin(svo) * nei_r # torch.tensor (B, )
-                if self.config.get('test_new_rewards', False):
-                    rewards = rewards + old_r
+                # 重新计算 Advantage
+                advantages = torch.cos(svo) * train_batch[Postprocessing.ADVANTAGES] + torch.sin(svo) * train_batch[NEI_ADVANTAGE] # torch.tensor (B, )
+                if self.config['norm_adv']:
+                    advantages = standardized(advantages)
             
 
         # 计算 GAE Advantage
-        values = train_batch[SampleBatch.VF_PREDS]
-        next_value = train_batch[NEXT_VF_PREDS]
-        dones = train_batch[SampleBatch.TERMINATEDS].to(dtype=values.dtype)
-        gamma = self.config['gamma']
-        lambda_ = self.config['lambda']
+        # values = train_batch[SampleBatch.VF_PREDS]
+        # next_value = train_batch[NEXT_VF_PREDS]
+        # dones = train_batch[SampleBatch.TERMINATEDS].to(dtype=values.dtype)
+        # gamma = self.config['gamma']
+        # lambda_ = self.config['lambda']
 
-        advantage = compute_advantage(
-            rewards, values, next_value, dones, gamma, lambda_, 
-            norm=self.config['norm_adv']
-        ) # 带svo梯度
+        # advantage = compute_advantage(
+        #     rewards, values, next_value, dones, gamma, lambda_, 
+        #     norm=self.config['norm_adv']
+        # ) # 带svo梯度
 
         msg_tr['**'] = '*'
-        msg_tr['advantage'] = advantage[:5]
-        msg_tr['advantage std/mean'] = torch.std_mean(advantage)
-        msg_tr['advantage req'] = advantage.requires_grad # True
+        msg_tr['advantage'] = advantages[:5]
+        msg_tr['advantage std/mean'] = torch.std_mean(advantages)
+        msg_tr['advantage req'] = advantages.requires_grad # True
         # printPanel(msg_tr, raw_output=True)
 
 
@@ -535,16 +836,15 @@ class SOCOPolicy(PPOTorchPolicy):
         #     advantage = train_batch[Postprocessing.ADVANTAGES] 
 
         if self.config['add_svo_loss']:
-            advantage_detach = advantage.detach()
             surrogate_loss = torch.min(
-                advantage_detach * logp_ratio,
-                advantage_detach *
+                advantages.detach() * logp_ratio,
+                advantages.detach() *
                 torch.clamp(logp_ratio, 1 - self.config["clip_param"], 1 + self.config["clip_param"]),
             )
         else:
             surrogate_loss = torch.min(
-                advantage * logp_ratio,
-                advantage *
+                advantages * logp_ratio,
+                advantages *
                 torch.clamp(logp_ratio, 1 - self.config["clip_param"], 1 + self.config["clip_param"]),
             )
 
@@ -555,64 +855,56 @@ class SOCOPolicy(PPOTorchPolicy):
         # === Compute a value function loss. ===
         assert self.config["use_critic"]
 
-        value_fn_out = model.value_function() # torch.tensor (B, )
-        # model.check_params_updated('svo')
-        # model.check_params_updated('policy')
-        # model.check_params_updated('value')
-       
-
-        # === 使用IPPO中的 Value Loss ===
+        # value_fn_out = model.value_function() # torch.tensor (B, )
         if self.config["old_value_loss"]:
-            current_vf = value_fn_out
-            prev_vf = train_batch[SampleBatch.VF_PREDS]
-            vf_loss1 = torch.pow(current_vf - train_batch[Postprocessing.VALUE_TARGETS], 2.0)
-            vf_clipped = prev_vf + torch.clamp(
-                current_vf - prev_vf, -self.config["vf_clip_param"], self.config["vf_clip_param"]
-            )
-            vf_loss2 = torch.pow(vf_clipped - train_batch[Postprocessing.VALUE_TARGETS], 2.0)
-            vf_loss_clipped = torch.max(vf_loss1, vf_loss2)
-
-        # == 使用原始 PPO 的 value loss ==
+            # == 使用IPPO中的 Value Loss ==
+            def _compute_value_loss(current_vf, prev_vf, value_target):
+                vf_loss1 = torch.pow(current_vf - value_target, 2.0)
+                vf_clipped = prev_vf + torch.clamp(
+                    current_vf - prev_vf, -self.config["vf_clip_param"], self.config["vf_clip_param"]
+                )
+                vf_loss2 = torch.pow(vf_clipped - value_target, 2.0)
+                vf_loss = torch.max(vf_loss1, vf_loss2)
+                return vf_loss
         else:
-            # TODO: use ippo v clip
-            v_target = advantage.detach() + train_batch[SampleBatch.VF_PREDS]
-            train_batch[Postprocessing.VALUE_TARGETS] = v_target
-            # value_targets = train_batch[Postprocessing.VALUE_TARGETS]
-            # vpred_t = torch.concat((value_fn_out, torch.tensor([last_r])))
+            # == 使用原始 PPO 的 value loss ==
+            def _compute_value_loss(current_vf, prev_vf, value_target):
+                vf_loss = torch.pow(current_vf - value_target, 2.0)
+                vf_loss_clipped = torch.clamp(vf_loss, 0, self.config["vf_clip_param"])
+                return vf_loss_clipped
 
-            # == 1. use 1-step ted error ==
-            # delta_t = q_value - value_fn_out
+        native_vf_loss = _compute_value_loss(
+            current_vf=model.value_function(),
+            prev_vf=train_batch[SampleBatch.VF_PREDS],
+            value_target=train_batch[Postprocessing.VALUE_TARGETS]
+        )
+        mean_native_vf_loss = reduce_mean_valid(native_vf_loss)
 
-            # == or 2. use GAE Advantage + V_t == 
-            delta_t = (v_target - value_fn_out)
+        nei_vf_loss = _compute_value_loss(
+            current_vf=model.get_nei_value(),
+            prev_vf=train_batch[NEI_VALUES],
+            value_target=train_batch[NEI_TARGET]
+        )
+        nei_mean_vf_loss = reduce_mean_valid(nei_vf_loss)
 
-            vf_loss = torch.pow(delta_t, 2.0)
-            # vf_loss = torch.pow(value_fn_out - train_batch[Postprocessing.VALUE_TARGETS], 2.0)
-            # vf_loss = torch.pow(value_fn_out - value_targets, 2.0)
-            vf_loss_clipped = torch.clamp(vf_loss, 0, self.config["vf_clip_param"])
-
-            msg_tr['vf_loss mean/std'] = torch.std_mean(vf_loss) 
-            # msg_tr['vf_loss slice'] = vf_loss[:5] 
-
-
-        mean_vf_loss = reduce_mean_valid(vf_loss_clipped)
 
         if self.config['add_svo_loss']:
             if self.config['svo_asymmetry_loss']:
                 r_tf = torch.BoolTensor((nei_r - old_r) > 0)
-                a_tf = torch.BoolTensor(advantage.detach() > 0)
+                a_tf = torch.BoolTensor(advantages.detach() > 0)
                 tf = r_tf | a_tf
                 tf = torch.where(tf, torch.tensor(1), torch.tensor(-1))
-                advantage = tf * advantage
+                advantages = tf * advantages
 
-            svo_loss = advantage
+            svo_loss = advantages
 
         else:
             svo_loss = 0
         # === Total loss ===
         total_loss = reduce_mean_valid(
             -surrogate_loss \
-            + self.config["vf_loss_coeff"] * vf_loss_clipped \
+            + self.config["vf_loss_coeff"] * native_vf_loss \
+            + self.config["vf_loss_coeff"] * nei_vf_loss \
             - self.entropy_coeff * curr_entropy \
             - self.config.get('svo_loss_coeff', 1) * svo_loss
             # - torch.abs(old_r - nei_r) * svo_loss
@@ -629,10 +921,10 @@ class SOCOPolicy(PPOTorchPolicy):
         # multi-GPU, we do not override them during the parallel loss phase.
         model.tower_stats["total_loss"] = total_loss
         model.tower_stats["mean_policy_loss"] = reduce_mean_valid(-surrogate_loss)
-        model.tower_stats["mean_vf_loss"] = mean_vf_loss
-        model.tower_stats["vf_explained_var"] = explained_variance(
-            train_batch[Postprocessing.VALUE_TARGETS], value_fn_out
-        )
+        model.tower_stats["mean_vf_loss"] = mean_native_vf_loss
+        model.tower_stats["mean_nei_vf_loss"] = nei_mean_vf_loss
+        model.tower_stats["normalized_advantages"] = advantages.mean()
+        model.tower_stats["vf_explained_var"] = torch.zeros(())
         model.tower_stats["mean_entropy"] = mean_entropy
         model.tower_stats["mean_kl_loss"] = mean_kl_loss
 
@@ -643,14 +935,14 @@ class SOCOPolicy(PPOTorchPolicy):
         return total_loss
 
 
-class SOCOTrainer(PPO):
+class SOCODCTrainer(PPO):
     @classmethod
     def get_default_config(cls):
-        return SOCOConfig()
+        return SOCODCConfig()
 
     def get_default_policy_class(self, config):
         assert config["framework"] == "torch"
-        return SOCOPolicy
+        return SOCODCPolicy
 
 
 
@@ -687,4 +979,4 @@ def get_mean_std_str(tensor) -> str:
     return f'{mean.item():.3f} / {std.item():.3f}'
 
 
-__all__ = ['SOCOConfig', 'SOCOTrainer']
+__all__ = ['SOCODCConfig', 'SOCODCTrainer']

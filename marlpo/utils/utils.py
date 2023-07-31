@@ -25,19 +25,25 @@ def get_num_agents_str(num_agents):
         return '-'.join(l)
 
 
-def get_args_only_if_test(algo_name, env_config, exp_des, scene, num_agents, test: bool):
+def get_other_training_configs(
+    algo_name, 
+    exp_des, 
+    scene, 
+    num_agents, 
+    seeds: list, 
+    test: bool
+):
     if test:
-        env_config["start_seed"] = 5000
-        env_config["num_agents"] = 2
         stop = {"training_iteration": 1}
         exp_name = "TEST"
         num_rollout_workers = 0
+        seeds = [5000]
     else:
         stop = {"timesteps_total": 1e6}
         exp_name = get_exp_name(algo_name, exp_des, scene, num_agents)
         num_rollout_workers = get_num_workers()
 
-    return stop, exp_name, num_rollout_workers
+    return stop, exp_name, num_rollout_workers, seeds
 
 
 def get_abbr_scene(name: str):
@@ -66,7 +72,7 @@ def get_num_workers():
         return 0
 
 
-def get_other_training_resources():
+def get_training_resources():
     if sys.platform.startswith('darwin'):
         # No GPUs
         return dict(

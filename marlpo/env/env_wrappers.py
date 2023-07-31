@@ -1435,7 +1435,7 @@ def get_rllib_compatible_env(env_class, return_class=False):
             seed: Optional[int] = None,
             options: Optional[dict] = None,
         ) -> Tuple[MultiAgentDict, MultiAgentDict]:
-            obs_and_infos = super().reset(seed)
+            obs_and_infos = super().reset(seed=seed)
             super(MultiAgentEnv, self).reset()
             return obs_and_infos
             

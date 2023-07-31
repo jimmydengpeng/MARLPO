@@ -8,8 +8,8 @@ from env.env_utils import get_metadrive_ma_env_cls
 from train import train
 from utils import (
     get_train_parser, 
-    get_other_training_resources, 
-    get_args_only_if_test,
+    get_training_resources, 
+    get_other_training_configs,
 )
 
 
@@ -62,7 +62,7 @@ if __name__ == "__main__":
     )
 
     # if TEST
-    stop, exp_name, num_rollout_workers = get_args_only_if_test(algo_name=ALGO_NAME, env_config=env_config, exp_des=EXP_DES, scene=SCENE, num_agents=NUM_AGENTS, test=TEST) # env_config will be modified
+    stop, exp_name, num_rollout_workers = get_other_training_configs(algo_name=ALGO_NAME, env_config=env_config, exp_des=EXP_DES, scene=SCENE, num_agents=NUM_AGENTS, test=TEST) # env_config will be modified
     
     stop = {"timesteps_total": 1e6}
     if args.num_workers:
@@ -79,7 +79,7 @@ if __name__ == "__main__":
         SCPPOConfig()
         .framework('torch')
         .resources(
-            **get_other_training_resources()
+            **get_training_resources()
         )
         .rollouts(
             num_rollout_workers=num_rollout_workers,

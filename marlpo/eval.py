@@ -19,8 +19,7 @@ from metadrive import (
 # from marlpo.algo_sappo import SAPPOConfig, SAPPOTrainer
 # from marlpo.callbacks import MultiAgentDrivingCallbacks
 # from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env, get_ccppo_env
-# from marlpo.utils.debug import print, inspect
-# from marlpo.utils.utils import get_other_training_resources, get_num_workers
+from utils.debug import print, printPanel
 
 
 
@@ -85,6 +84,7 @@ class MetricCallbacks():
     def _setup(self):
         self._last_infos = {}
         self.data = {}
+        self.env_steps = 0
 
     def on_episode_start(self):
         self._setup()
@@ -98,6 +98,7 @@ class MetricCallbacks():
         # data["num_neighbours"] = defaultdict(list)
 
     def on_episode_step(self, infos, active_keys=None):
+        self.env_steps += 1
         for agent_id, info in infos.items():
             self.set_last_info(agent_id, info)
         
@@ -140,6 +141,8 @@ class MetricCallbacks():
 
         # === 计算 成功率、撞车、出界率、最大步数率 ===
         metrics["success_rate"] = np.mean(arrive_dest_list)
+        metrics["num_success"] = np.count_nonzero(arrive_dest_list)
+        metrics["total_agents"] = len(arrive_dest_list)
         metrics["crash_rate"] = np.mean(crash_list)
         metrics["out_of_road_rate"] = np.mean(out_of_road_list)
         metrics["max_step_rate"] = np.mean(max_step_list)
@@ -147,6 +150,8 @@ class MetricCallbacks():
         # === 计算 平均奖励、平均长度 ===
         metrics["epsode_reward_mean"] = np.mean(epi_rew_list)
         metrics["epsode_length_mean"] = np.mean(epi_len_list)
+
+        metrics["env_steps"] = self.env_steps
 
     def set_last_info(self, agent_id, info):
         self._last_infos[agent_id] = info
@@ -194,6 +199,9 @@ def get_algo_new():
 
     ScCO_30a_5000_intersection_no_others_nei_dis_10m_coeff_1='exp_SoCO/SOCO_Inter_30agents_v1(-a)(mean_nei_r)(svo_init_pi_6)(svo_coeff_1e-1)/SOCOTrainer_MultiAgentIntersectionEnv_55553_00000_0_num_agents=30,start_seed=5000,nei_rewards_mode=mean_nei_rewards,svo_asymmetry__2023-07-28_17-15-45/checkpoint_001460'
 
+    SoCO_DC='exp_SoCO/SOCO_DC_Inter_30agents_v0(-a)(mean_nei_r)(svo_init_pi_6)(svo_coeff_1)/SOCODCTrainer_MultiAgentIntersectionEnv_95369_00002_2_num_agents=30,start_seed=5000,norm_adv=True,svo_init_value=pi_6,svo_loss_coe_2023-07-31_02-12-02/checkpoint_000977'
+    SoCO_DC_2='exp_SoCO/SOCO_DC_Inter_30agents_v0(-a)(mean_nei_r)(svo_init_pi_6)(svo_coeff_1)/SOCODCTrainer_MultiAgentIntersectionEnv_95369_00001_1_num_agents=30,start_seed=5000,norm_adv=False,svo_init_value=pi_6,svo_loss_co_2023-07-31_02-12-02/checkpoint_000977'
+
     ippo='exp_results/IPPO_Intersection_8seeds_30agents_repeat/IPPOTrainer_MultiAgentIntersectionEnv_3f8db_00000_0_start_seed=5000_seed=0_2023-06-07_19-05-44/checkpoint_000977'
 
     ippo_16a_4others='exp_SoCO/IPPO_Inter_16agents_(obs=107)/IPPOTrainer_MultiAgentIntersectionEnv_d0a96_00000_0_num_agents=16,start_seed=5000,num_others=4_2023-07-26_20-49-10/checkpoint_000977'
@@ -212,7 +220,8 @@ def get_algo_new():
     # checkpoint_path = ippo_16a_4others
     # checkpoint_path = ippo_30a_obs_91_2
     # checkpoint_path = pth
-    checkpoint_path = ippo_best
+    # checkpoint_path = ippo_best
+    checkpoint_path = SoCO_DC
     algo = Algorithm.from_checkpoint(checkpoint_path)
 
     return algo
@@ -271,7 +280,8 @@ if __name__ == "__main__":
    # === Environmental Setting ===
     env_config = dict(
         use_render=False,
-        num_agents=30,
+        num_agents=30,    
+        allow_respawn=True,
         return_single_space=True,
         # crash_done=True,
         # delay_done=0,
@@ -331,12 +341,15 @@ if __name__ == "__main__":
         "max_step_rate": np.float32(0),
         "epsode_length_mean": np.float32(0),
         "epsode_reward_mean": np.float32(0),
+        "num_success": 0,
+        "total_agents": 0
     }
 
     epi_succ_rate_list = []
     epi_crash_rate_list = []
     epi_out_rate_list = []
     epi_max_step_rate_list = []
+    total_agents_list = []
 
     epi_neighbours_list = defaultdict(list)
 
@@ -371,9 +384,15 @@ if __name__ == "__main__":
             epi_crash_rate_list.append(metrics["crash_rate"])
             epi_out_rate_list.append(metrics["out_of_road_rate"])
             epi_max_step_rate_list.append(metrics["max_step_rate"])
+            total_agents_list.append(metrics["total_agents"])
 
-            print(f'episode #{cur_epi} ends.')
-            print(metrics)
+            env_steps = metrics["env_steps"]
+            num_success = metrics["num_success"]
+            num_failures = metrics["total_agents"] - num_success
+            efficiency = (num_success - num_failures) / env_steps * 100
+            metrics['efficiency'] = efficiency    
+
+            printPanel(metrics, 'episode #{cur_epi} ends.')
 
             all_mean_nei = []
             max_nei = 0
@@ -421,7 +440,7 @@ if __name__ == "__main__":
 
             env.render(
                 text=text,
-                current_track_vehicle = v,
+                current_track_vehicle = None,
                 mode="top_down", 
                 film_size=(1000, 1000),
                 screen_size=(1000, 1000),
@@ -435,3 +454,4 @@ if __name__ == "__main__":
         epi_max_step_rate_list
     ))
 
+    algo.stop()

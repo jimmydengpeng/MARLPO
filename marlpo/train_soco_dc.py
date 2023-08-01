@@ -25,14 +25,14 @@ SCENE = "intersection" if not TEST else "intersection"
 SEEDS = [5000]
 
 # NUM_AGENTS = [30]
-NUM_AGENTS = [8]
+NUM_AGENTS = 30
 NUM_NEIGHBOURS = 4
-EXP_DES = "v1(-a)(mean_nei_r)(svo_init_0)(svo_coeff_1)"
+EXP_DES = "v1(-a)(mean_nei_r)(svo_init_0)(svo_coeff_1)(ind)"
 
 if __name__ == "__main__":
     args = get_train_parser().parse_args()
     TEST = TEST or args.test
-    NUM_AGENTS = [args.num_agents] if args.num_agents else NUM_AGENTS
+    NUM_AGENTS = args.num_agents if args.num_agents else NUM_AGENTS
     # if TEST 
     stop, exp_name, num_rollout_workers, seeds = get_other_training_configs(
                                                     algo_name=ALGO_NAME, 
@@ -49,7 +49,8 @@ if __name__ == "__main__":
 
     # === Environmental Setting ===
     env_config = dict(
-        num_agents=tune.grid_search(NUM_AGENTS),
+        num_agents=NUM_AGENTS,
+        allow_respawn=tune.grid_search([False]),
         return_single_space=True,
         start_seed=tune.grid_search(seeds),
         delay_done=25,
@@ -76,7 +77,7 @@ if __name__ == "__main__":
         # stop = {"timesteps_total": 3e6}
         stop = {"training_iteration": 3}
     if TEST and not args.num_agents:
-        env_config['num_agents'] = 5
+        env_config['num_agents'] = 30
 
 
     # === Algo Setting ===
@@ -91,6 +92,8 @@ if __name__ == "__main__":
         )
         .callbacks(MultiAgentDrivingCallbacks)
         .multi_agent(
+            policies=set([f"agent{i}" for i in range(NUM_AGENTS)]),
+            policy_mapping_fn=(lambda agent_id, *args, **kwargs: agent_id),
         )
         .training(
             train_batch_size=1024,
@@ -144,10 +147,10 @@ if __name__ == "__main__":
         .environment(env=env_name, render_env=False, env_config=env_config, disable_env_checking=True)
         .update_from_dict(dict(
             # == SaCo ==
-            use_ext_svo=tune.grid_search([True, False]),
+            use_ext_svo=tune.grid_search([False]),
             test_new_rewards=False,
             add_svo_loss=True,
-            svo_loss_coeff=tune.grid_search([1]),
+            svo_loss_coeff=tune.grid_search([0.1]),
             svo_asymmetry_loss=False,
             use_sa_and_svo=False, # whether use attention backbone or mlp backbone 
             use_fixed_svo=False,
@@ -166,7 +169,7 @@ if __name__ == "__main__":
             #     'attentive_one_nei_reward',   #  │
             #     # 'attentive_all_nei_reward', # ─╯
             # ]),
-            norm_adv=tune.grid_search([True, False]),
+            norm_adv=tune.grid_search([True]),
             # == Common ==
             old_value_loss=False,
             # old_value_loss=True,

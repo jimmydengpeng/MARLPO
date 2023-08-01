@@ -34,16 +34,16 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
         env_index: Optional[int] = None,
         **kwargs,
     ) -> None:
-        # logger.debug('base_env', type(base_env)) 
+        # == need aggragating ==
         episode.user_data["velocity"] = defaultdict(list)
         episode.user_data["steering"] = defaultdict(list)
-        episode.user_data["step_reward"] = defaultdict(list) # {'agent0': [0, 1, 1.2, 0.2, ...], ...}
+        episode.user_data["step_reward"] = defaultdict(list) # {'agent0': [0.1, 1.2, ...], ...}
         episode.user_data["acceleration"] = defaultdict(list)
-        episode.user_data["cost"] = defaultdict(list)
-        episode.user_data["episode_length"] = defaultdict(list)
-        episode.user_data["episode_reward"] = defaultdict(list)
-        episode.user_data["num_neighbours"] = defaultdict(list)
-
+        # episode.user_data["cost"] = defaultdict(list)
+        episode.user_data["neighbours"] = defaultdict(list)
+        # == accumulative, only need last one ==
+        # episode.user_data["agent_steps"] = defaultdict(list) # of single agent
+        # episode.user_data["agent_rewards"] = defaultdict(list) 
 
     def on_episode_step(
         self,
@@ -67,7 +67,6 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
 
         for agent_id in active_keys:
             k = agent_id
-            # info = episode.last_info_for(k) # deprecated!
             info = episode._last_infos.get(k)
             if info:
                 if "step_reward" not in info:
@@ -76,10 +75,10 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
                 episode.user_data["steering"][k].append(info["steering"])
                 episode.user_data["step_reward"][k].append(info["step_reward"])
                 episode.user_data["acceleration"][k].append(info["acceleration"])
-                episode.user_data["cost"][k].append(info["cost"])
-                episode.user_data["episode_length"][k].append(info["episode_length"])
-                episode.user_data["episode_reward"][k].append(info["episode_reward"])
-                episode.user_data["num_neighbours"][k].append(len(info.get("neighbours", [])))
+                # episode.user_data["cost"][k].append(info["cost"])
+                # episode.user_data["agent_steps"][k].append(info["episode_length"])
+                # episode.user_data["agent_rewards"][k].append(info["episode_reward"])
+                episode.user_data["neighbours"][k].append(len(info.get("neighbours", [])))
 
     def on_episode_end(
         self,
@@ -91,28 +90,23 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
         env_index: Optional[int] = None,
         **kwargs,
     ) -> None:
-        keys = [k for k, _ in episode.agent_rewards.keys()]
+        # keys = [k for k, _ in episode.agent_rewards.keys()]
+        agents = episode.get_agents()
+
         arrive_dest_list = []
         crash_list = []
         out_of_road_list = []
         max_step_list = []
 
-        # # Newly introduced metrics
-        # track_length_list = []
-        # route_completion_list = []
-        current_distance_list = []
+        # Newly introduced metrics
+        # current_distance_list = []
 
-        for k in keys:
-            # info = episode.last_info_for(k)
+        for k in agents:
             info = episode._last_infos[k]
 
             # == Newly introduced metrics ==
-            # route_completion = info.get("route_completion", -1)
-            # track_length = info.get("track_length", -1)
-            current_distance = info.get("current_distance", -1)
-            current_distance_list.append(current_distance)
-            # track_length_list.append(track_length)
-            # route_completion_list.append(route_completion)
+            # current_distance = info.get("current_distance", -1)
+            # current_distance_list.append(current_distance)
 
             # == Rate ==
             arrive_dest = info.get("arrive_dest", False)
@@ -125,30 +119,26 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
             out_of_road_list.append(out_of_road)
             max_step_list.append(max_step)
 
-        # Newly introduced metrics
-        # episode.custom_metrics["track_length"] = np.mean(track_length_list)
-        episode.custom_metrics["current_distance"] = np.mean(current_distance_list)
-        # episode.custom_metrics["route_completion"] = np.mean(route_completion_list)
 
+        # episode.custom_metrics["current_distance"] = np.mean(current_distance_list)
         episode.custom_metrics["success_rate"] = np.mean(arrive_dest_list)
         episode.custom_metrics["crash_rate"] = np.mean(crash_list)
         episode.custom_metrics["out_of_road_rate"] = np.mean(out_of_road_list)
         episode.custom_metrics["max_step_rate"] = np.mean(max_step_list)
 
-        for info_k, info_dict in episode.user_data.items():
-            # 记录所有user_data项目中所有agent数据的最大、最小、平均值
-            if info_k in ['episode_length', 'episode_reward']: continue
-            self._add_item(episode, info_k, [vv for v in info_dict.values() for vv in v]) # info_dict:  {'agent0': [0, 1, 1.2, 0.2, ...], ...}
+        # 在一个episode结束后， 计算user_data项目中平均每个agent数据的最大、最小、平均值
+        for info_k, info_dict in episode.user_data.items(): # info_dict: {'agent0': [...], ...}
+            self._add_item(episode, info_k, [vv for v in info_dict.values() for vv in v]) 
+        
+        # 对于 accumulative 的数值，只计算每个agent最后一步的值即可
+        for info_k in ['episode_length', 'episode_reward', 'episode_distance']:
+            self._add_item(episode, info_k, [episode._last_infos[k][info_k] for k in agents])
 
-        episode.custom_metrics["episode_length"] = np.mean(
-            [ep_len[-1] for ep_len in episode.user_data["episode_length"].values()]
-        ) # 所有agent的episode_length的平均
-        episode.custom_metrics["episode_reward"] = np.mean(
-            [ep_r[-1] for ep_r in episode.user_data["episode_reward"].values()]
-        ) # 所有agent的episode_reward的平均)
-        episode.custom_metrics["environment_reward_total"] = np.sum(
-            [ep_r[-1] for ep_r in episode.user_data["episode_reward"].values()]
+        episode.custom_metrics["environmental_agents_rewards"] = np.sum(
+            [episode._last_infos[a]['episode_reward'] for a in agents]
         ) # 一个episode中所有agent的episode_reward的总和)
+        episode.custom_metrics["num_agents_total"] = len(episode.get_agents())
+        # assert len(episode.get_agents()) == len(episode._last_infos.keys()), (episode.get_agents(), episode._last_infos.keys())
 
     def _add_item(self, episode, name, value_list):
         episode.custom_metrics["{}_max".format(name)] = float(np.max(value_list))
@@ -174,8 +164,7 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
     def on_learn_on_batch(
         self, *, policy: Policy, train_batch: SampleBatch, result: dict, **kwargs
     ) -> None:
-        # pass
-        # infos = train_batch[SampleBatch.INFOS]
+        # 记录 svo 值
         if 'svo' in train_batch:
             svo = train_batch['svo']
             result['svo_mean'] = np.mean(svo)
@@ -191,25 +180,31 @@ class MultiAgentDrivingCallbacks(DefaultCallbacks):
         result: dict,
         **kwargs,
     ) -> None:
+        num_envs = 1 * algorithm.config.num_rollout_workers
         result["SuccessRate"] = np.nan
         result["CrashRate"] = np.nan
         result["OutRate"] = np.nan
         result["MaxStepRate"] = np.nan
-        result["LengthMean"] = result["episode_len_mean"]
+        result["RewardMean"] = np.nan
+        result["StepMean"] = np.nan
         result["DistanceMean"] = np.nan
+        result["NeighboursMean"] = np.nan
+        result["RewardsTotal"] = np.nan
+        result["AgentsTotal"] = np.nan
         if "success_rate_mean" in result["custom_metrics"]:
             result["SuccessRate"] = result["custom_metrics"]["success_rate_mean"]
             result["CrashRate"] = result["custom_metrics"]["crash_rate_mean"]
             result["OutRate"] = result["custom_metrics"]["out_of_road_rate_mean"]
             result["MaxStepRate"] = result["custom_metrics"]["max_step_rate_mean"]
-            result["RewardMean"] = result["custom_metrics"]["episode_reward_mean"]
-            result["DistanceMean"] = result["custom_metrics"]["current_distance_mean"] #TODO
-        result["CostMean"] = np.nan
-        if "episode_cost_mean" in result["custom_metrics"]:
-            result["CostMean"] = result["custom_metrics"]["episode_cost_mean"]
 
-        # present the agent-averaged reward.
-        # result["RewardMean"] = result["episode_reward_mean"]
-        # result["_episode_policy_reward_mean"] = np.mean(list(result["policy_reward_mean"].values()))
-        # result["environment_reward_total"] = np.sum(list(result["policy_reward_mean"].values()))
+            result["RewardMean"] = result["custom_metrics"]["episode_reward_mean_mean"]
+            result["StepMean"] = result["custom_metrics"]["episode_length_mean_mean"]
+            result["DistanceMean"] = result["custom_metrics"]["episode_distance_mean_mean"]
+            result["NeighboursMean"] = result["custom_metrics"]["neighbours_mean_mean"] 
+
+            result["RewardsTotal"] = result["custom_metrics"]["environmental_agents_rewards_mean"] 
+            result["AgentsTotal"] = result["custom_metrics"]["num_agents_total_mean"] 
+
+        # from utils.debug import printPanel
+        # printPanel(result)
 

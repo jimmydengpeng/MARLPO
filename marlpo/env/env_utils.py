@@ -171,7 +171,7 @@ def colorize_info_for_agent(
 
 
 # TODO: refactor
-def interpre_obs(obs: np.ndarray, config: dict, color: str = None):
+def interpreted_obs(obs: np.ndarray, config: dict, color: str = None):
     """Make the obs array human readable.
 
     Args:

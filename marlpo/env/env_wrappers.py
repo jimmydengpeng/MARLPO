@@ -1,6 +1,6 @@
 from typing import Any, Dict, Optional, Tuple, Union
 import copy
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 import logging
 from math import cos, sin, pi
 import numpy as np
@@ -943,7 +943,7 @@ class TrackingEnv:
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.distance_tracker = defaultdict(dict)
+        self.last_dist = defaultdict(int)
 
     def reset(
         self, 
@@ -952,38 +952,81 @@ class TrackingEnv:
         options: Optional[dict] = None
     ):
         obs, infos = super().reset(seed=seed)
-        self.distance_tracker = defaultdict(dict)
-        self.update_distance()
+
+        self.distance_tracker = {}
+        # self._update_distance_dict(obs.keys())
         self.add_distance_into_infos(infos)
         return obs, infos
 
     def step(self, actions):
         obs, r, tm, tr, infos = super().step(actions)
-        self.update_distance()
+        # self._update_distance_dict(obs.keys())
         self.add_distance_into_infos(infos)
         return obs, r, tm, tr, infos
     
-    def update_distance(self):
+    def _update_distance_dict(self, agents):
         if hasattr(self, "vehicles_including_just_terminated"):
             vehicles = self.vehicles_including_just_terminated
         else:
             vehicles = self.vehicles  # Fallback to old version MetaDrive, but this is not accurate!
-        for agent in vehicles:
-            vehicle = vehicles[agent]
+        
+        for agent in agents:
+            vehicle = vehicles.get(agent, None)
             if vehicle:
                 position = vehicle.position
                 lane, lane_index, on_lane = vehicle.navigation._get_current_lane(vehicle)
                 if lane:
                     long, lat = lane.local_coordinates(position)
+                    if agent not in self.distance_tracker:
+                        self.distance_tracker[agent] = OrderedDict(
+                            init_d=long
+                        )
+                        print('1-------', long)
                     self.distance_tracker[agent][lane] = long
+
+   
+            
+
     
     def add_distance_into_infos(self, infos):
         for agent in infos:
-            dis_dict = self.distance_tracker[agent]
-            total_dis = 0
-            for lane, d in dis_dict.items():
-                total_dis += d
-            infos[agent]['current_distance'] = total_dis
+            last_dist = self.last_dist[agent]
+            step_dist = 0
+            if agent in self.vehicles:
+                vehicle = self.vehicles[agent]
+                if vehicle.lane in vehicle.navigation.current_ref_lanes:
+                    current_lane = vehicle.lane
+                    positive_road = 1
+                else:
+                    current_lane = vehicle.navigation.current_ref_lanes[0]
+                    current_road = vehicle.navigation.current_road
+                    positive_road = 1 if not current_road.is_negative_road() else -1
+                long_last, _ = current_lane.local_coordinates(vehicle.last_position)
+                long_now, lateral_now = current_lane.local_coordinates(vehicle.position)
+                step_dist = (long_now - long_last) * positive_road
+            cur_dist = step_dist + last_dist
+            self.last_dist[agent] = cur_dist
+            infos[agent]['episode_distance'] = cur_dist
+
+
+def get_tracking_md_env(env_class):
+    """Augment a MetaDrive env with new functions,
+    Args:
+        env_class: A MetaDrive env class.
+    Returns:
+        A augmented MetaDrive env class. 
+    """
+    name = env_class.__name__
+
+    class TMP(TrackingEnv, env_class):
+        pass
+
+    TMP.__name__ = name
+    TMP.__qualname__ = name
+    return TMP
+
+
+
 
 
 class NeighbourMDEnv(TrackingEnv):

@@ -26,24 +26,30 @@ def get_num_agents_str(num_agents):
 
 
 def get_other_training_configs(
+    args, 
     algo_name, 
     exp_des, 
     scene, 
     num_agents, 
-    seeds: list, 
-    test: bool
+    seeds: list,
+    test: bool,
 ):
+    test = args.test if args.test else test
     if test:
-        stop = {"training_iteration": 1}
         exp_name = "TEST"
         num_rollout_workers = 0
         seeds = [5000]
+        num_agents = [2]
     else:
-        stop = {"timesteps_total": 1e6}
         exp_name = get_exp_name(algo_name, exp_des, scene, num_agents)
         num_rollout_workers = get_num_workers()
 
-    return stop, exp_name, num_rollout_workers, seeds
+    if args.num_workers:
+        num_rollout_workers = args.num_workers
+    if args.num_agents is not None:
+        num_agents = [args.num_agents] 
+
+    return num_agents, exp_name, num_rollout_workers, seeds, test
 
 
 def get_abbr_scene(name: str):
@@ -65,7 +71,7 @@ def get_exp_name(algo_name, exp_des, scene, num_agents):
 
 def get_num_workers():
     if sys.platform.startswith('darwin'):
-        return 7
+        return 4
     elif sys.platform.startswith('linux'):
         return 4
     else:

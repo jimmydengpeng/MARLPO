@@ -58,6 +58,15 @@ def train(
         # log_level="DEBUG" if test_mode else "WARN"
     )
 
+    metric_columns = CLIReporter.DEFAULT_COLUMNS.copy()
+    progress_reporter = CLIReporter(metric_columns=metric_columns)
+    progress_reporter.add_metric_column("SuccessRate")
+    progress_reporter.add_metric_column("CrashRate")
+    progress_reporter.add_metric_column("OutRate")
+    progress_reporter.add_metric_column("MaxStepRate")
+    progress_reporter.add_metric_column("StepMean")
+    progress_reporter.add_metric_column("custom_metrics/episode_reward_mean_mean")
+
     tuner = tune.Tuner(
         trainer,
         run_config=air.RunConfig(
@@ -66,6 +75,7 @@ def train(
             stop=stop,
             checkpoint_config=checkpoint_config,
             verbose=verbose,
+            progress_reporter=progress_reporter,
         ),
         param_space=config,
     )

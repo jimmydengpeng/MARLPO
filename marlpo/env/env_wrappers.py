@@ -1414,7 +1414,7 @@ def get_rllib_compatible_env(env_class, return_class=False):
 
     class MAEnv(env_class, MultiAgentEnv):        
         # == rllib MultiAgentEnv requries: ==
-        _agent_ids = ["agent{}".format(i) for i in range(100)] + ["{}".format(i) for i in range(10000)] + ["sdc"]
+        # _agent_ids = ["agent{}".format(i) for i in range(100)] + ["{}".format(i) for i in range(10000)] + ["sdc"]
 
         def __init__(self, config: dict, *args, **kwargs):
             env_class.__init__(self, config, *args, **kwargs)

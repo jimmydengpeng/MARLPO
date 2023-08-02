@@ -210,9 +210,14 @@ def get_algo_new():
 
     ippo_30a_obs_91_2='exp_SoCO/IPPO_Inter_30agents_(obs=91)/IPPOTrainer_MultiAgentIntersectionEnv_325a1_00000_0_num_agents=30,start_seed=6000,num_others=0_2023-07-28_18-12-02/checkpoint_000977'
 
+    ippo_5000='exp_SoCO/IPPO_Inter_4agents_(8_seeds)(4_workers)/IPPOTrainer_MultiAgentIntersectionEnv_06981_00000_0_num_agents=30,start_seed=5000,num_others=0_2023-08-01_21-12-11/checkpoint_001172'
+
     pth='exp_SoCO/SOCO_Inter_30agents_v1(-a)(mean_nei_r)(svo_init_pi_6)(svo_coeff_1e-2)/SOCOTrainer_MultiAgentIntersectionEnv_6e8c2_00000_0_num_agents=30,start_seed=5000,nei_rewards_mode=mean_nei_rewards,svo_asymmetry__2023-07-28_17-16-27/checkpoint_001465'
 
     ippo_best='exp_SoCO/IPPO_Inter_30agents_(obs=91)/IPPOTrainer_MultiAgentIntersectionEnv_e8564_00000_0_num_agents=30,start_seed=5000,num_others=0_2023-07-29_22-05-00/checkpoint_001730'
+
+    max_ego_and_nei='exp_SoCO/SOCO_Inter_30agents_v2[mean_nei_r][max_local_r])/SOCOTrainer_MultiAgentIntersectionEnv_86376_00001_1_num_agents=30,start_seed=5000,nei_rewards_mode=mean_nei_rewards,norm_adv=False_2023-08-01_22-41-39/checkpoint_000610'
+    max_ego_and_nei_norm_a='exp_SoCO/SOCO_Inter_30agents_v2[mean_nei_r][max_local_r])/SOCOTrainer_MultiAgentIntersectionEnv_86376_00000_0_num_agents=30,start_seed=5000,nei_rewards_mode=mean_nei_rewards,norm_adv=True,_2023-08-01_22-41-39/checkpoint_001090'
 
     # checkpoint_path = ScCO_30a_5000_intersection_no_others_nei_dis_10m
     checkpoint_path = ScCO_30a_5000_intersection_no_others_nei_dis_10m_max_r_init_0
@@ -221,7 +226,9 @@ def get_algo_new():
     # checkpoint_path = ippo_30a_obs_91_2
     # checkpoint_path = pth
     # checkpoint_path = ippo_best
-    checkpoint_path = SoCO_DC
+    # checkpoint_path = SoCO_DC
+    checkpoint_path = max_ego_and_nei_norm_a
+    # checkpoint_path = ippo_5000
     algo = Algorithm.from_checkpoint(checkpoint_path)
 
     return algo

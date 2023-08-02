@@ -39,6 +39,7 @@ NEI_REWARDS = "nei_rewards"
 SVO = 'svo'
 ORIGINAL_REWARDS = "original_rewards"
 HAS_NEIGHBOURS = 'has_neighbours'
+NUM_NEIGHBOURS = 'num_neighbours'
 ATTENTION_MAXTRIX = 'attention_maxtrix'
 
 ATTENTION_HIDDEN_DIM = 64
@@ -729,6 +730,7 @@ class SOCOFCNModel(TorchModelV2, nn.Module):
         self.view_requirements[NEI_REWARDS] = ViewRequirement()
         self.view_requirements[ORIGINAL_REWARDS] = ViewRequirement(data_col=SampleBatch.REWARDS, shift=0)
         self.view_requirements[HAS_NEIGHBOURS] = ViewRequirement()
+        self.view_requirements[NUM_NEIGHBOURS] = ViewRequirement()
         self.view_requirements[ATTENTION_MAXTRIX] = ViewRequirement()
 
     @override(TorchModelV2)

@@ -35,6 +35,7 @@ NEI_REWARDS = "nei_rewards"
 SVO = 'svo'
 NEXT_VF_PREDS = 'next_vf_preds'
 HAS_NEIGHBOURS = 'has_neighbours'
+NUM_NEIGHBOURS = 'num_neighbours'
 ATTENTION_MAXTRIX = 'attention_maxtrix'
 
 NEI_REWARDS_MODE = 'nei_rewards_mode'
@@ -42,6 +43,7 @@ NEI_REWARDS_MODE = 'nei_rewards_mode'
 MEAN_NEI_REWARDS = 'mean_nei_rewards'                 # ─╮ 
 MAX_NEI_REWARDS = 'max_nei_rewards'                   #  │
 NEAREST_NEI_REWARDS = 'nearest_nei_reward'            #  │──> Choose 1 alternatively
+SUM_NEI_REWARDS = 'sum_nei_rewards'
 ATTENTIVE_ONE_NEI_REWARD = 'attentive_one_nei_reward' #  │
 ATTENTIVE_ALL_NEI_REWARD = 'attentive_all_nei_reward' # ─╯
 
@@ -88,7 +90,7 @@ class SOCOConfig(PPOConfig):
             MAX_NEI_REWARDS,          #  │
             NEAREST_NEI_REWARDS,      #  │──> Choose 1 alternatively
             ATTENTIVE_ONE_NEI_REWARD, #  │
-            ATTENTIVE_ALL_NEI_REWARD, # ─╯
+            SUM_NEI_REWARDS,          # ─╯
         ], self[NEI_REWARDS_MODE] 
 
         # common
@@ -172,6 +174,7 @@ class SOCOPolicy(PPOTorchPolicy):
         nei_rewards = []
         has_neighbours = []
         # new_rews = []
+        num_neighbours = []
 
         for i, info in enumerate(infos):
             assert isinstance(info, dict)
@@ -179,6 +182,7 @@ class SOCOPolicy(PPOTorchPolicy):
                 # assert sample_batch[SampleBatch.T][i] == i, (sample_batch[SampleBatch.T][i], sample_batch[SampleBatch.AGENT_INDEX])
                 nei_rewards.append(0.)
                 has_neighbours.append(False)
+                num_neighbours.append(0)
                 # new_rews.append(0)
             else:
                 assert NEI_REWARDS in info
@@ -196,6 +200,8 @@ class SOCOPolicy(PPOTorchPolicy):
                         nei_r = np.max(nei_rewards_t)
                     elif self.config[NEI_REWARDS_MODE] == NEAREST_NEI_REWARDS:
                         nei_r = nei_rewards_t[0]
+                    elif self.config[NEI_REWARDS_MODE] == SUM_NEI_REWARDS:
+                        nei_r = np.sum(nei_rewards_t)
 
                     # 2. or == 使用注意力选择一辆车或多辆车 ==
                     else:
@@ -241,24 +247,32 @@ class SOCOPolicy(PPOTorchPolicy):
 
                     nei_rewards.append(nei_r)
                     has_neighbours.append(True)
+                    num_neighbours.append(len(nei_rewards_t))
                 
                 else: # NEI_REWARDS 列表为空, 即没有邻居
                     assert len(info[NEI_REWARDS]) == 0
+                    num_neighbours.append(0)
                     # 1. == 此时邻居奖励为0 ==
-                    nei_rewards.append(0.)
+                    if self.config.get('nei_reward_if_no_nei', None) == 'self':
+                        nei_rewards.append(ego_r)
+                    elif self.config.get('nei_reward_if_no_nei', None) == '0':
+                        nei_rewards.append(0.)
+                    else:
+                        nei_rewards.append(0.)
                     # or 2. == 使用自己的奖励当做邻居奖励 ==
                     # or 3. == 使用自己的奖励 ==
-                    # new_rews.append(ego_r)
                     has_neighbours.append(False)
 
 
         nei_rewards = np.array(nei_rewards).astype(np.float32)
         has_neighbours = np.array(has_neighbours)
+        num_neighbours = np.array(num_neighbours)
         # new_rewards = np.array(new_rews).astype(np.float32)
         # printPanel({'atn_matrix': atn_matrix, 'nei_r': nei_r})
 
         sample_batch[NEI_REWARDS] = nei_rewards
         sample_batch[HAS_NEIGHBOURS] = has_neighbours
+        sample_batch[NUM_NEIGHBOURS] = num_neighbours
 
         # printPanel(msg, f'{self.__class__.__name__}.postprocess_trajectory()')
         return nei_rewards, has_neighbours
@@ -428,10 +442,10 @@ class SOCOPolicy(PPOTorchPolicy):
                 msg_atn['atn matrix'] = model.last_attention_matrix[-1][0][0] # (B, H, 1[ego_q], num_agents)
                 # printPanel(msg_atn, 'loss(): attention matrix')
 
-                old_r = train_batch[ORIGINAL_REWARDS]
+                ego_r = train_batch[ORIGINAL_REWARDS]
                 nei_r = train_batch[NEI_REWARDS] 
                 # 重新计算加权奖励
-                rewards = torch.cos(svo) * old_r + torch.sin(svo) * nei_r # torch.tensor (B, )
+                rewards = torch.cos(svo) * ego_r + torch.sin(svo) * nei_r # torch.tensor (B, )
                 # msg_tr['new_r mean/std'] = torch.std_mean(new_r)
                 # msg_tr['new_r req'] = new_r.requires_grad
                 # 如果没有邻居 则用自身的原始奖励
@@ -465,13 +479,26 @@ class SOCOPolicy(PPOTorchPolicy):
 
                 # printPanel(msg, title='in loss', raw_output=True)
                 
-                old_r = train_batch[ORIGINAL_REWARDS]
+                ego_r = train_batch[ORIGINAL_REWARDS]
                 nei_r = train_batch[NEI_REWARDS] 
                 # 重新计算加权奖励
-                rewards = torch.cos(svo) * old_r + torch.sin(svo) * nei_r # torch.tensor (B, )
-                if self.config.get('test_new_rewards', False):
-                    rewards = rewards + old_r
-            
+                r_coor_mode = self.config.get('reward_coor_mode', None)
+                if r_coor_mode == None or r_coor_mode == 'ego':
+                    rewards = ego_r
+                elif r_coor_mode == 'svo': 
+                    rewards = torch.cos(svo) * ego_r + torch.sin(svo) * nei_r # torch.tensor (B, )
+                elif r_coor_mode == 'fixed_svo': 
+                    svo = torch.tensor(self.config['fixed_svo'])
+                    rewards = torch.cos(svo) * ego_r + torch.sin(svo) * nei_r # (B, )
+                elif r_coor_mode == 'add': 
+                    rewards = ego_r + nei_r
+                elif r_coor_mode == 'local_mean': #此时nei_r为邻居的奖励和
+                    rewards = (ego_r + nei_r) / (train_batch[NUM_NEIGHBOURS] + 1)
+                    # print('2-----', torch.mean(nei_r))
+                    # print('3-----', train_batch[NUM_NEIGHBOURS][:10])
+                    # print('4-----', torch.mean(rewards))
+                else:
+                    raise NotImplementedError
 
         # 计算 GAE Advantage
         values = train_batch[SampleBatch.VF_PREDS]
@@ -599,7 +626,7 @@ class SOCOPolicy(PPOTorchPolicy):
 
         if self.config['add_svo_loss']:
             if self.config['svo_asymmetry_loss']:
-                r_tf = torch.BoolTensor((nei_r - old_r) > 0)
+                r_tf = torch.BoolTensor((nei_r - ego_r) > 0)
                 a_tf = torch.BoolTensor(advantage.detach() > 0)
                 tf = r_tf | a_tf
                 tf = torch.where(tf, torch.tensor(1), torch.tensor(-1))

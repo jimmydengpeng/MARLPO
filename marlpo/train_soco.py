@@ -22,26 +22,25 @@ SCENE = "intersection" if not TEST else "intersection"
 # === Env Seeds ===
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
 # seeds = [5000, 6000, 7000]
-SEEDS = [5000]
+SEEDS = [6000]
 # seeds = [8000, 9000, 10000, 11000, 12000]
 
 # NUM_AGENTS = [30]
-NUM_AGENTS = [8]
-NUM_NEIGHBOURS = 4
-EXP_DES = "v1(-a)(mean_nei_r)(svo_init_pi_6)(svo_coeff_1e-1)"
+NUM_AGENTS = [30]
+NUM_NEIGHBOURS = 8
+EXP_DES = "v2[mean_nei_r][max_local_r][nei_dis⇧][fix_svo=pi_6]"
 
 if __name__ == "__main__":
     args = get_train_parser().parse_args()
-    TEST = TEST or args.test
-    NUM_AGENTS = [args.num_agents] if args.num_agents else NUM_AGENTS
-
-    stop, exp_name, num_rollout_workers, seeds = get_other_training_configs(
-                                                algo_name=ALGO_NAME, 
-                                                exp_des=EXP_DES, 
-                                                scene=SCENE, 
-                                                num_agents=NUM_AGENTS,
-                                                seeds=SEEDS, 
-                                                test=TEST) 
+    
+    num_agents, exp_name, num_rollout_workers, SEEDS, TEST = get_other_training_configs(
+                                                                args=args,
+                                                                algo_name=ALGO_NAME, 
+                                                                exp_des=EXP_DES, 
+                                                                scene=SCENE, 
+                                                                num_agents=NUM_AGENTS,
+                                                                seeds=SEEDS,
+                                                                test=TEST) 
     # == Get Environment ==
     env_name, env_cls = get_rllib_compatible_env(
                             get_neighbour_md_env(
@@ -50,9 +49,9 @@ if __name__ == "__main__":
 
     # == Environmental Setting ==
     env_config = dict(
-        num_agents=tune.grid_search(NUM_AGENTS),
+        num_agents=tune.grid_search(num_agents),
         return_single_space=True,
-        start_seed=tune.grid_search(seeds),
+        start_seed=tune.grid_search(SEEDS),
         delay_done=25,
         vehicle_config=dict(
             lidar=dict(
@@ -66,17 +65,15 @@ if __name__ == "__main__":
         add_compact_state=False, # add BOTH ego- & nei- compact-state simultaneously
         add_nei_state=False,
         num_neighbours=NUM_NEIGHBOURS, # determine how many neighbours's abs state will be included in obs
-        neighbours_distance=10,
+        neighbours_distance=tune.grid_search([15]),
     )
 
-    stop = {"timesteps_total": 2e6}
-    if args.num_workers:
-        num_rollout_workers = args.num_workers
+    # ========== changable =========== 
+    stop = {"timesteps_total": 1.2e6}
     if TEST:
-        # stop = {"timesteps_total": 3e6}
         stop = {"training_iteration": 10}
-    if TEST and not args.num_agents:
-        env_config['num_agents'] = 30
+        # env_config['num_agents'] = 30
+    # ================================ 
 
 
     # === Algo Setting ===
@@ -140,18 +137,23 @@ if __name__ == "__main__":
         .environment(env=env_name, render_env=False, env_config=env_config, disable_env_checking=True)
         .update_from_dict(dict(
             # == SaCo ==
-            test_new_rewards=False,
-            add_svo_loss=True,
+            test_new_rewards=False, # DEPRECATED! not in use! refer to 'reward_coor_mode'
+            nei_reward_if_no_nei='self', # ['0']
+            add_svo_loss=False,
             svo_loss_coeff=tune.grid_search([1]),
             svo_asymmetry_loss=False,
             use_sa_and_svo=False, # whether use attention backbone or mlp backbone 
             use_fixed_svo=False,
-            fixed_svo=math.pi/4, #tune.grid_search([math.pi/4, math.pi/6, math.pi/3]),
+            fixed_svo=math.pi/6, #tune.grid_search([math.pi/4, math.pi/6, math.pi/3]),
             use_social_attention=True, # TODO
             use_svo=True, #tune.grid_search([True, False]), # whether or not to use svo to change reward, if False, use original reward
             svo_init_value=tune.grid_search(['pi/6']), # in [ '0', 'pi/4', 'pi/2', 'random' ]
             svo_mode='full', #tune.grid_search(['full', 'restrict']),
-            nei_rewards_mode=tune.grid_search(['mean_nei_rewards']), #'attentive_one_nei_reward',
+            nei_rewards_mode=tune.grid_search(['mean_nei_rewards']), 
+            # == add: r = ego_r + nei_r ==
+            # == local_mean: r = mean(ego_r + num_nei * nei_r) ==
+            reward_coor_mode=tune.grid_search(['fixed_svo']), # default: None=='ego', 'svo', 'add'
+            
             sp_select_mode='numerical', # only work if use onehot_attention!
             # sp_select_mode=tune.grid_search(['bincount', 'numerical']), # only work if use onehot_attention!
             # nei_rewards_mode=tune.grid_search([
@@ -161,11 +163,11 @@ if __name__ == "__main__":
             #     'attentive_one_nei_reward',   #  │
             #     # 'attentive_all_nei_reward', # ─╯
             # ]),
-            norm_adv=tune.grid_search([True, False]),
+            norm_adv=tune.grid_search([True]),
             # == Common ==
             old_value_loss=False,
             # old_value_loss=True,
-            num_neighbours=NUM_NEIGHBOURS,
+            num_neighbours=tune.grid_search([NUM_NEIGHBOURS]),
             # == CC ==
             use_central_critic=False,
             counterfactual=False,

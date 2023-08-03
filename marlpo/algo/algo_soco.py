@@ -491,7 +491,7 @@ class SOCOPolicy(PPOTorchPolicy):
                     svo = torch.tensor(self.config['fixed_svo'])
                     rewards = torch.cos(svo) * ego_r + torch.sin(svo) * nei_r # (B, )
                 elif r_coor_mode == 'add': 
-                    rewards = ego_r + nei_r
+                    rewards = ego_r + self.config.get('nei_r_add_coeff', 1) * nei_r
                 elif r_coor_mode == 'local_mean': #此时nei_r为邻居的奖励和
                     rewards = (ego_r + nei_r) / (train_batch[NUM_NEIGHBOURS] + 1)
                     # print('2-----', torch.mean(nei_r))

@@ -28,7 +28,7 @@ SEEDS = [6000]
 # NUM_AGENTS = [30]
 NUM_AGENTS = [30]
 NUM_NEIGHBOURS = 8
-EXP_DES = "v2[mean_nei_r][max_local_r][nei_dis⇧][fix_svo=pi_6]"
+EXP_DES = "v2[mean_nei_r][max_local_r][nei_mean_r_coeff=0.5]"
 
 if __name__ == "__main__":
     args = get_train_parser().parse_args()
@@ -144,15 +144,16 @@ if __name__ == "__main__":
             svo_asymmetry_loss=False,
             use_sa_and_svo=False, # whether use attention backbone or mlp backbone 
             use_fixed_svo=False,
-            fixed_svo=math.pi/6, #tune.grid_search([math.pi/4, math.pi/6, math.pi/3]),
+            fixed_svo=math.pi/8, #tune.grid_search([math.pi/4, math.pi/6, math.pi/3]),
             use_social_attention=True, # TODO
             use_svo=True, #tune.grid_search([True, False]), # whether or not to use svo to change reward, if False, use original reward
-            svo_init_value=tune.grid_search(['pi/6']), # in [ '0', 'pi/4', 'pi/2', 'random' ]
+            svo_init_value='0', # in [ '0', 'pi/4', 'pi/2', 'random' ]
             svo_mode='full', #tune.grid_search(['full', 'restrict']),
             nei_rewards_mode=tune.grid_search(['mean_nei_rewards']), 
             # == add: r = ego_r + nei_r ==
             # == local_mean: r = mean(ego_r + num_nei * nei_r) ==
-            reward_coor_mode=tune.grid_search(['fixed_svo']), # default: None=='ego', 'svo', 'add'
+            reward_coor_mode=tune.grid_search(['add']), # default: None=='ego', 'svo', 'add'
+            nei_r_add_coeff=tune.grid_search([0.1, 0.5]),
             
             sp_select_mode='numerical', # only work if use onehot_attention!
             # sp_select_mode=tune.grid_search(['bincount', 'numerical']), # only work if use onehot_attention!

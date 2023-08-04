@@ -27,26 +27,31 @@ SEEDS = [5000]
 # NUM_AGENTS = [30]
 NUM_AGENTS = 30
 NUM_NEIGHBOURS = 4
-EXP_DES = "v0<fix_kl_coeff>"
+EXP_DES = "v2<idv:0->0.2, team:1->0.8>"
+# EXP_DES = "v1<kl_coeff><(0,0.5)(1, 0.5)>"
 
 if __name__ == "__main__":
+    # === Get Args ===
     args = get_train_parser().parse_args()
-    # if TEST 
-    num_agents, exp_name, num_rollout_workers, SEEDS, TEST = get_other_training_configs(
-                                                                args=args,
-                                                                algo_name=ALGO_NAME, 
-                                                                exp_des=EXP_DES, 
-                                                                scene=SCENE, 
-                                                                num_agents=NUM_AGENTS,
-                                                                seeds=SEEDS,
-                                                                test=TEST) 
-    # == Get Environment ==
-    env_name, env_cls = get_rllib_compatible_env(
-                            get_neighbour_md_env(
-                            get_metadrive_ma_env_cls(SCENE)), 
-                            return_class=True)
+    num_agents, exp_name, num_rollout_workers, SEEDS, TEST = \
+        get_other_training_configs(
+            args=args,
+            algo_name=ALGO_NAME, 
+            exp_des=EXP_DES, 
+            scene=SCENE, 
+            num_agents=NUM_AGENTS,
+            seeds=SEEDS,
+            test=TEST) 
 
-    # == Environmental Setting ==
+    # === Get Environment ===
+    env_name, env_cls = \
+        get_rllib_compatible_env(
+            get_neighbour_md_env(
+            get_metadrive_ma_env_cls(SCENE)), 
+            return_class=True
+        )
+
+    # === Environmental Configs ===
     env_config = dict(
         num_agents=tune.grid_search(num_agents),
         return_single_space=True,
@@ -61,19 +66,18 @@ if __name__ == "__main__":
         ),
         # == neighbour config ==
         use_dict_obs=False,
-        add_compact_state=False, # add BOTH ego- & nei- compact-state simultaneously
+        add_compact_state=False,
         add_nei_state=False,
-        num_neighbours=NUM_NEIGHBOURS, # determine how many neighbours's abs state will be included in obs
+        num_neighbours=NUM_NEIGHBOURS, 
         neighbours_distance=10,
     )
 
-    # ============ changable =============
-    stop = {"timesteps_total": 1.2e6}
-    if TEST:
-        stop = {"training_iteration": 5}
-    # ==================================== 
+    # ────────────── changable ─────────────────╮
+    stop = {"timesteps_total": 1.2e6}         # │ 
+    if TEST : stop ={"training_iteration": 5} # │
+    # ──────────────────────────────────────────╯
 
-    # === Algo Setting ===
+    # === Algo Configs ===
     algo_config = (
         IRATConfig()
         .framework('torch')
@@ -91,10 +95,10 @@ if __name__ == "__main__":
             gamma=0.99,
             lr=3e-4,
             sgd_minibatch_size=512,
-            num_sgd_iter=5,
+            num_sgd_iter=1,
             lambda_=0.95,
             model=dict(
-                # == RLlib built-in attention net ==
+                # == RLlib built-in attention net config ==
                 use_attention=False,
                 max_seq_len=10,
                 attention_num_transformer_units=1,
@@ -104,22 +108,30 @@ if __name__ == "__main__":
                 custom_model_config=dict(
                 ),
                 free_log_std=False,
+                fcnet_activation='relu',
             ),
+            # use_kl_loss=False, # for single ppo's kl(pi_old|pi_new)
+            # grad_clip=10,
+            # grad_clip_by='norm',
+            vf_loss_coeff=1,
+            kl_coeff=0,
+            # kl_target=0,
             _enable_learner_api=False,
         )
         .rl_module(_enable_rl_module_api=False)
         .environment(env=env_name, render_env=False, env_config=env_config, disable_env_checking=True)
         .update_from_dict(dict(
             # == IRAT ==
-            idv_clip_param=0.5,
+            idv_clip_param=0.2,
+            team_clip_param=0.2,
             # idv_kl_coeff=0.2,
             # idv_kl_end_coeff=0.5,
             idx_kl_coeff_schedule=[
-                (0, 0.), 
-                (num_agents[0] * 1.2e6, 0.5)
+                (0, 0), 
+                (num_agents[0] * 1.2e6, 0.001)
             ],
             team_kl_coeff_schedule=[
-                (0, 1.), 
+                (0, 1), 
                 (num_agents[0] * 1.2e6, 0.5)
             ],
             # team_kl_coeff=0.2,
@@ -145,7 +157,7 @@ if __name__ == "__main__":
             # ]),
             norm_adv=True,
             # == Common ==
-            huber_value_loss=False,
+            huber_value_loss=True,
             # old_value_loss=True,
             num_neighbours=NUM_NEIGHBOURS,
             # == CC ==
@@ -164,6 +176,6 @@ if __name__ == "__main__":
         checkpoint_freq=10,
         keep_checkpoints_num=3,
         num_gpus=0,
-        results_path='exp_SoCO',
+        results_path='exp_IRAT',
         test_mode=TEST,
     )

@@ -1,11 +1,12 @@
-import math
+from train import train
 from ray import tune
+
+import math
 
 from algo import IRATConfig, IRATTrainer
 from callbacks import MultiAgentDrivingCallbacks
 from env.env_wrappers import get_rllib_compatible_env, get_neighbour_md_env
 from env.env_utils import get_metadrive_ma_env_cls
-from train import train
 from utils import (
     get_train_parser, 
     get_training_resources, 
@@ -27,7 +28,8 @@ SEEDS = [5000]
 # NUM_AGENTS = [30]
 NUM_AGENTS = 30
 NUM_NEIGHBOURS = 4
-EXP_DES = "v2<idv:0->0.2, team:1->0.8>"
+# EXP_DES = "v<idv:0->0.2, team:1->0.8>"
+EXP_DES = "v4-1"
 # EXP_DES = "v1<kl_coeff><(0,0.5)(1, 0.5)>"
 
 if __name__ == "__main__":
@@ -74,7 +76,7 @@ if __name__ == "__main__":
 
     # ────────────── changable ─────────────────╮
     stop = {"timesteps_total": 1.2e6}         # │ 
-    if TEST : stop ={"training_iteration": 5} # │
+    if TEST : stop ={"training_iteration": 1} # │
     # ──────────────────────────────────────────╯
 
     # === Algo Configs ===
@@ -93,9 +95,9 @@ if __name__ == "__main__":
         .training(
             train_batch_size=1024,
             gamma=0.99,
-            lr=3e-4,
+            lr=3e-5,
             sgd_minibatch_size=512,
-            num_sgd_iter=1,
+            num_sgd_iter=5,
             lambda_=0.95,
             model=dict(
                 # == RLlib built-in attention net config ==
@@ -111,10 +113,11 @@ if __name__ == "__main__":
                 fcnet_activation='relu',
             ),
             # use_kl_loss=False, # for single ppo's kl(pi_old|pi_new)
-            # grad_clip=10,
-            # grad_clip_by='norm',
+            entropy_coeff=0.1, # 不能加上最大化熵?
+            grad_clip=40,
+            grad_clip_by='norm',
             vf_loss_coeff=1,
-            kl_coeff=0,
+            kl_coeff=0.1,
             # kl_target=0,
             _enable_learner_api=False,
         )
@@ -122,17 +125,17 @@ if __name__ == "__main__":
         .environment(env=env_name, render_env=False, env_config=env_config, disable_env_checking=True)
         .update_from_dict(dict(
             # == IRAT ==
-            idv_clip_param=0.2,
-            team_clip_param=0.2,
+            idv_clip_param=0.5,
+            team_clip_param=0.5,
             # idv_kl_coeff=0.2,
             # idv_kl_end_coeff=0.5,
             idx_kl_coeff_schedule=[
                 (0, 0), 
-                (num_agents[0] * 1.2e6, 0.001)
+                (3*num_agents[0] * 1.2e6, 0.005)
             ],
             team_kl_coeff_schedule=[
                 (0, 1), 
-                (num_agents[0] * 1.2e6, 0.5)
+                (3*num_agents[0] * 1.2e6, 0.5)
             ],
             # team_kl_coeff=0.2,
             # team_kl_end_coeff=0.5,
@@ -159,7 +162,7 @@ if __name__ == "__main__":
             # == Common ==
             huber_value_loss=True,
             # old_value_loss=True,
-            num_neighbours=NUM_NEIGHBOURS,
+            num_neighbours=NUM_NEIGHBOURS, # the max num of neighbours policy will use
             # == CC ==
             use_central_critic=False,
             counterfactual=False,

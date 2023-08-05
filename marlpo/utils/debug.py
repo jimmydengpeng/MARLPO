@@ -1,3 +1,4 @@
+import logging
 from typing import Union, Dict
 import rich
 from rich import print, inspect
@@ -27,6 +28,20 @@ def reduce_window_width(WINDOWN_WIDTH_REDUCED, in_file: str = None):
         print(f'[red]({in_file}) rich console -= 30[/]: [blue]{rich.get_console().width}[/]')
 
 # reduce_window_width(WINDOWN_WIDTH_REDUCED)
+
+
+def get_logger():
+    logger = logging.getLogger("marlpo")
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s\t%(levelname)s (marlpo) %(filename)s:%(lineno)s -- %(message)s"
+        )
+    )
+    logger.addHandler(handler)
+    logger.propagate = False
+    return logger
+
 
 class SafeFallbackEncoder(json.JSONEncoder):
     def __init__(self, nan_str="null", **kwargs):

@@ -20,6 +20,7 @@ from ray.rllib.utils.sgd import standardized
 from ray.rllib.utils.torch_utils import explained_variance, sequence_mask, warn_if_infinite_kl_divergence
 from ray.rllib.utils.typing import Dict, TensorType, List, Tuple, ModelConfigDict
 
+from .utils import add_neighbour_rewards
 from utils.debug import printPanel, reduce_window_width, WINDOWN_WIDTH_REDUCED
 reduce_window_width(WINDOWN_WIDTH_REDUCED, __file__)
 
@@ -464,9 +465,16 @@ class IRATPolicy(IRATKLCoeffSchedule, PPOTorchPolicy):
                 msg['*'] = '*'
                 msg['agent id'] = f'agent{sample_batch[SampleBatch.AGENT_INDEX][0]}'
                 # msg['agent id last'] = f'agent{sample_batch[SampleBatch.AGENT_INDEX][-1]}'
-
+                sample_batch = add_neighbour_rewards(self.config, sample_batch)
+                # print('*'*30)
+                # print('t:', sample_batch['t'][:3])
+                # print('agent_index:', sample_batch['agent_index'][:3])
+                # print('actions:', sample_batch['actions'][:3])
+                # print('rewards:', sample_batch['rewards'][:3])
+                # print('nei rewards:', sample_batch[NEI_REWARDS][:3])
+                # print('infos:', sample_batch['infos'][:3])
+                # print('#'*30)
                 # == 1. add neighbour rewards ==
-                nei_rewards, has_neighbours = self.add_neighbour_rewards(sample_batch)
 
                 # == 2. compute team rewards ==
                 sample_batch[TEAM_REWARDS] = sample_batch[ORIGINAL_REWARDS] + sample_batch[NEI_REWARDS] 
@@ -592,13 +600,30 @@ class IRATPolicy(IRATKLCoeffSchedule, PPOTorchPolicy):
         # == obj ==
         idv_adv_ = standardized(idv_adv)
         idv_loss = self.get_idv_loss(idv_p_ratio, idv_team_p_ratio, idv_adv_)
+        # idv_loss = self.get_idv_loss_without_team(idv_p_ratio, idv_team_p_ratio, idv_adv_)
         team_adv_ = standardized(team_adv)
         team_loss = self.get_team_loss(team_idv_p_ratio, team_adv_)
+        
+        if torch.isnan(idv_loss).any():
+            print(" ──────────── idv loss has nan ──────────── ")
+        if torch.isinf(idv_loss).any():
+            print(" ──────────── idv loss has inf ──────────── ")
 
+        if torch.isnan(team_loss).any():
+            print(" ──────────── team loss has nan ──────────── ")
+        if torch.isinf(team_loss).any():
+            print(" ──────────── team loss has inf ──────────── ")
 
         # == kl ==
         kl_team_2_idv = dist_class(team_logits.detach(), model).kl(idv_new_action_dist)
+        mean_kl_team_2_idv = reduce_mean_valid(kl_team_2_idv)
+        if warn_if_infinite_kl_divergence(self, mean_kl_team_2_idv):
+            print('──── warn_if_infinite_kl_divergence ────', 'mean_kl_team_2_idv')
+
         kl_idv_2_team = prev_idv_action_dist.kl(team_new_action_dist)
+        mean_kl_idv_2_team = reduce_mean_valid(kl_idv_2_team)
+        if warn_if_infinite_kl_divergence(self, mean_kl_idv_2_team):
+            print('──── warn_if_infinite_kl_divergence ────', 'mean_kl_idv_2_team')
         
 
         # ╭───────────────────────────────────────────────────╮
@@ -647,13 +672,17 @@ class IRATPolicy(IRATKLCoeffSchedule, PPOTorchPolicy):
             - team_loss \
             # + self.team_kl_coeff * kl_idv_2_team \
             + self.config["vf_loss_coeff"] * idv_vf_loss \
-            + self.config["vf_loss_coeff"] * team_vf_loss \
-            - self.entropy_coeff * idv_new_dist_entropy \
-            - self.entropy_coeff * team_new_dist_entropy \
+            + self.config["vf_loss_coeff"] * team_vf_loss
+
             # - torch.abs(old_r - nei_r) * svo_loss
             # + torch.pow(advantage, 2)
         )
 
+        total_loss += self.idv_kl_coeff * mean_kl_team_2_idv
+        total_loss += self.team_kl_coeff * mean_kl_idv_2_team
+
+        total_loss -= self.entropy_coeff * reduce_mean_valid(idv_new_dist_entropy)
+        total_loss -= self.entropy_coeff * reduce_mean_valid(team_new_dist_entropy)
 
         # Add mean_kl_loss (already processed through `reduce_mean_valid`),
         # if necessary.
@@ -677,8 +706,8 @@ class IRATPolicy(IRATKLCoeffSchedule, PPOTorchPolicy):
         model.tower_stats["team_advantages"] = reduce_mean_valid(team_adv)
 
         # == kl divergence ==
-        model.tower_stats["kl(team|idv)"] = reduce_mean_valid(kl_team_2_idv)
-        model.tower_stats["kl(idv|team)"] = reduce_mean_valid(kl_idv_2_team)
+        model.tower_stats["kl(team|idv)"] = mean_kl_team_2_idv
+        model.tower_stats["kl(idv|team)"] = mean_kl_idv_2_team
         model.tower_stats["kl_idv(old|new)"] = mean_idv_2_old_policy_kl_loss
 
         # == entropy ==
@@ -761,25 +790,6 @@ class IRATPolicy(IRATKLCoeffSchedule, PPOTorchPolicy):
         # else:
         tc_flag = so_weights >= 1.0
 
-        # tn = imp_weights.clone().detach().view(-1, 1).shape[0]
-        # tg = imp_weights >= (1.0 - self.clip_param)
-        # tl = imp_weights <= (1.0 + self.clip_param)
-        # tcr = (tl & tg).float().sum() / tn
-        # tgs = so_weights >= (1.0 - self.idv_clip_ratio)
-        # tls = so_weights <= (1.0 + self.idv_clip_ratio)
-        # tcrs = (tgs & tls).float().sum() / tn
-
-        # ts12 = surr1 <= surr2
-        # ts13 = surr1 <= surr3
-        # ts1_flag = ts12 & ((tc_flag & ts13) | (~tc_flag & ~ts13))
-        # ts1 = ts1_flag.float().sum() / tn
-        # tsl1 = surr1.clone().detach()[ts1_flag].mean()
-        # ts31 = surr3 <= surr1
-        # ts32 = surr3 <= surr2
-        # t3 = ts31 & ts32 & tgs & tls
-        # ts3 = t3.float().sum() / tn
-        # tsl3 = surr3.clone().detach()[t3].mean()
-
         idv_min = torch.min(surr1, surr2)
         # ts31 = surr3 <= idv_min
         # t3_flag = tgs & tls & ((tc_flag & ts31) | (~tc_flag & ~ts31))
@@ -793,12 +803,19 @@ class IRATPolicy(IRATKLCoeffSchedule, PPOTorchPolicy):
 
         return idv_min
 
-        # if self._use_policy_active_masks:
-        #     policy_action_loss = (-torch.sum(idv_min,
-        #                                     dim=-1,
-        #                                     keepdim=True) * active_masks_batch).sum() / active_masks_batch.sum()
-        # else:
-        # policy_action_loss = -torch.sum(idv_min, dim=-1, keepdim=True).mean()
+    def get_idv_loss_without_team(self, idv_p_ratio, idv_team_p_ratio, idv_adv):
+        # individual actor update
+        imp_weights = idv_p_ratio
+
+        surr1 = imp_weights * idv_adv
+        surr2 = idv_adv * torch.clamp(
+            imp_weights, 
+            1.0 - self.config["clip_param"], 
+            1.0 + self.config["clip_param"]
+        ) 
+
+        idv_min = torch.min(surr1, surr2)
+        return idv_min
 
     def get_team_loss(self, team_idv_p_ratio, team_adv):
         imp_weights = team_idv_p_ratio

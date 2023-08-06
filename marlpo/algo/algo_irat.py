@@ -465,7 +465,6 @@ class IRATPolicy(IRATKLCoeffSchedule, PPOTorchPolicy):
                 msg['*'] = '*'
                 msg['agent id'] = f'agent{sample_batch[SampleBatch.AGENT_INDEX][0]}'
                 # msg['agent id last'] = f'agent{sample_batch[SampleBatch.AGENT_INDEX][-1]}'
-                sample_batch = add_neighbour_rewards(self.config, sample_batch)
                 # print('*'*30)
                 # print('t:', sample_batch['t'][:3])
                 # print('agent_index:', sample_batch['agent_index'][:3])
@@ -475,9 +474,11 @@ class IRATPolicy(IRATKLCoeffSchedule, PPOTorchPolicy):
                 # print('infos:', sample_batch['infos'][:3])
                 # print('#'*30)
                 # == 1. add neighbour rewards ==
+                sample_batch = add_neighbour_rewards(self.config, sample_batch)
 
                 # == 2. compute team rewards ==
-                sample_batch[TEAM_REWARDS] = sample_batch[ORIGINAL_REWARDS] + sample_batch[NEI_REWARDS] 
+                nei_r_coeff = self.config.get('nei_rewards_add_coeff', 1)
+                sample_batch[TEAM_REWARDS] = sample_batch[ORIGINAL_REWARDS] + nei_r_coeff * sample_batch[NEI_REWARDS] 
 
             if sample_batch[SampleBatch.DONES][-1]:
                 last_r = last_nei_r = last_team_r = 0.0

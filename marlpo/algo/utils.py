@@ -46,11 +46,11 @@ def add_neighbour_rewards(
         assert isinstance(info, dict)
         # Abormal, when env reset, the 1st info will be {0: {'agent0': ..., 'agent1': ...}}
         if NEI_REWARDS not in info:
-            logger.warning(
-                "No 'nei_rewards' key in info for agent{} at t_{}!".format(
-                sample_batch['agent_index'][i], 
-                sample_batch[SampleBatch.T][i])
-            )
+            # logger.warning(
+            #     "No 'nei_rewards' key in info for agent{} at t_{}!".format(
+            #     sample_batch['agent_index'][i], 
+            #     sample_batch[SampleBatch.T][i])
+            # )
             assert set(info.keys()) == set([0])
             assert sample_batch['t'][0] == 0
             keys = [info.keys() for info in infos]
@@ -60,13 +60,6 @@ def add_neighbour_rewards(
 
             true_info = info[0][agent_id]
             info = true_info
-            # print('-----'*20)
-            # print('info', info)
-            # print('ego_r', i, agent_id, sample_batch[SampleBatch.REWARDS][i])
-            # print('ego_r + 1', i+1, agent_id, sample_batch[SampleBatch.REWARDS][i+1])
-            # print('info + 1', i+1, agent_id, infos[i+1])
-            # print('info + 2', i+2, agent_id, infos[i+2])
-            # print('====='*20)
         if i == 0:
             continue    
         if i > 0 and i < len(infos) - 1:
@@ -114,10 +107,14 @@ def add_neighbour_rewards(
                 nei_rewards.append(0.)
 
     assert len(nei_rewards) + 1 == len(infos)
-    nei_rewards.append(nei_rewards[-1])
-    has_neighbours.append(has_neighbours[-1])
-    num_neighbours.append(num_neighbours[-1])
-
+    if nei_rewards:
+        nei_rewards.append(nei_rewards[-1])
+        has_neighbours.append(has_neighbours[-1])
+        num_neighbours.append(num_neighbours[-1])
+    else:
+        nei_rewards.append(0)
+        has_neighbours.append(False)
+        num_neighbours.append(0)
     nei_rewards = np.array(nei_rewards).astype(np.float32)
     has_neighbours = np.array(has_neighbours)
     num_neighbours = np.array(num_neighbours)

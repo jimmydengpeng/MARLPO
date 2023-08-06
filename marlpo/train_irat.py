@@ -29,7 +29,7 @@ SEEDS = [5000]
 NUM_AGENTS = 30
 NUM_NEIGHBOURS = 4
 # EXP_DES = "v<idv:0->0.2, team:1->0.8>"
-EXP_DES = "v4-1"
+EXP_DES = "v5"
 # EXP_DES = "v1<kl_coeff><(0,0.5)(1, 0.5)>"
 
 if __name__ == "__main__":
@@ -131,11 +131,11 @@ if __name__ == "__main__":
             # idv_kl_end_coeff=0.5,
             idx_kl_coeff_schedule=[
                 (0, 0), 
-                (3*num_agents[0] * 1.2e6, 0.005)
+                (3*num_agents[0] * 1.2e6, 0.1)
             ],
             team_kl_coeff_schedule=[
                 (0, 1), 
-                (3*num_agents[0] * 1.2e6, 0.5)
+                (3*num_agents[0] * 1.2e6, 0.1)
             ],
             # team_kl_coeff=0.2,
             # team_kl_end_coeff=0.5,
@@ -149,6 +149,7 @@ if __name__ == "__main__":
             svo_init_value='0', # in [ '0', 'pi/4', 'pi/2', 'random' ]
             svo_mode='full', #tune.grid_search(['full', 'restrict']),
             nei_rewards_mode='mean_nei_rewards', #'attentive_one_nei_reward',
+            nei_rewards_add_coeff=0.2,
             sp_select_mode='numerical', # only work if use onehot_attention!
             # sp_select_mode=tune.grid_search(['bincount', 'numerical']), # only work if use onehot_attention!
             # nei_rewards_mode=tune.grid_search([

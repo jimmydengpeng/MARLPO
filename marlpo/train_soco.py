@@ -22,13 +22,13 @@ SCENE = "intersection" if not TEST else "intersection"
 # === Env Seeds ===
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
 # seeds = [5000, 6000, 7000]
-SEEDS = [6000]
+SEEDS = [5000]
 # seeds = [8000, 9000, 10000, 11000, 12000]
 
 # NUM_AGENTS = [30]
 NUM_AGENTS = [30]
-NUM_NEIGHBOURS = 8
-EXP_DES = "v2[mean_nei_r][max_local_r][nei_mean_r_coeff=0.5]"
+NUM_NEIGHBOURS = [4, 8]
+EXP_DES = "add_ego_nei_r"
 
 if __name__ == "__main__":
     args = get_train_parser().parse_args()
@@ -64,8 +64,8 @@ if __name__ == "__main__":
         use_dict_obs=False,
         add_compact_state=False, # add BOTH ego- & nei- compact-state simultaneously
         add_nei_state=False,
-        num_neighbours=NUM_NEIGHBOURS, # determine how many neighbours's abs state will be included in obs
-        neighbours_distance=tune.grid_search([15]),
+        # num_neighbours=NUM_NEIGHBOURS, # determine how many neighbours's abs state will be included in obs
+        neighbours_distance=tune.grid_search([10, 40]),
     )
 
     # ========== changable =========== 
@@ -153,7 +153,7 @@ if __name__ == "__main__":
             # == add: r = ego_r + nei_r ==
             # == local_mean: r = mean(ego_r + num_nei * nei_r) ==
             reward_coor_mode=tune.grid_search(['add']), # default: None=='ego', 'svo', 'add'
-            nei_r_add_coeff=tune.grid_search([0.1, 0.5]),
+            nei_r_add_coeff=tune.grid_search([0.1, 0.5, 1]),
             
             sp_select_mode='numerical', # only work if use onehot_attention!
             # sp_select_mode=tune.grid_search(['bincount', 'numerical']), # only work if use onehot_attention!
@@ -168,7 +168,7 @@ if __name__ == "__main__":
             # == Common ==
             old_value_loss=False,
             # old_value_loss=True,
-            num_neighbours=tune.grid_search([NUM_NEIGHBOURS]),
+            num_neighbours=tune.grid_search(NUM_NEIGHBOURS),
             # == CC ==
             use_central_critic=False,
             counterfactual=False,
@@ -185,6 +185,6 @@ if __name__ == "__main__":
         checkpoint_freq=10,
         keep_checkpoints_num=3,
         num_gpus=0,
-        results_path='exp_SoCO',
+        results_path='exp_SoCO_NEW',
         test_mode=TEST,
     )

@@ -22,6 +22,7 @@ from ray.rllib.utils.torch_utils import (
 )
 
 from models.soco_model import SOCOModel, SOCOFCNModel
+from .utils import add_neighbour_rewards
 from utils.debug import printPanel, reduce_window_width, WINDOWN_WIDTH_REDUCED
 reduce_window_width(WINDOWN_WIDTH_REDUCED, __file__)
 
@@ -331,10 +332,11 @@ class SOCOPolicy(PPOTorchPolicy):
                         2. use predicted svo to reshape the reward returned by env 
                             to get a new individual reward
                     '''
-                    nei_rewards, has_neighbours = self.add_neighbour_rewards(sample_batch)
+                    sample_batch = add_neighbour_rewards(self.config, sample_batch)
+                    nei_rewards = sample_batch[NEI_REWARDS]
+                    has_neighbours = sample_batch[HAS_NEIGHBOURS]
+
                     msg = {}
-                    msg['has_neighbours %'] = np.sum(has_neighbours) / len(has_neighbours) * 100
-                    assert nei_rewards.shape == has_neighbours.shape
 
                     if self.config['use_sa_and_svo']:
                         svo = np.squeeze(sample_batch[SVO]) # [0, +oo) # (B, )

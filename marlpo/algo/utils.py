@@ -18,10 +18,10 @@ ATTENTION_MAXTRIX = 'attention_maxtrix'
 
 NEI_REWARDS_MODE = 'nei_rewards_mode'
 
-MEAN_NEI_REWARDS = 'mean_nei_rewards'                 # ─╮ 
+MEAN_NEI_REWARDS = 'mean'                 # ─╮ 
 MAX_NEI_REWARDS = 'max_nei_rewards'                   #  │
 NEAREST_NEI_REWARDS = 'nearest_nei_reward'            #  │──> Choose 1 alternatively
-SUM_NEI_REWARDS = 'sum_nei_rewards'
+SUM_NEI_REWARDS = 'sum'
 ATTENTIVE_ONE_NEI_REWARD = 'attentive_one_nei_reward' #  │
 ATTENTIVE_ALL_NEI_REWARD = 'attentive_all_nei_reward' # ─╯
 
@@ -63,7 +63,7 @@ def add_neighbour_rewards(
         if i == 0:
             continue    
         if i > 0 and i < len(infos) - 1:
-            assert np.isclose(sample_batch[SampleBatch.REWARDS][i],infos[i+1]['step_reward']), (sample_batch[SampleBatch.REWARDS][i], infos[i+1]['step_reward'])
+            assert np.isclose(sample_batch[SampleBatch.REWARDS][i], infos[i+1]['step_reward']), (sample_batch[SampleBatch.REWARDS][i], infos[i+1]['step_reward'])
 
         # Normal
         # == NEI_REWARDS 列表不为空, 即有邻居 ==
@@ -95,7 +95,7 @@ def add_neighbour_rewards(
         
         else: # == NEI_REWARDS 列表为空, 即没有邻居 ==
             assert len(info[NEI_REWARDS]) == 0
-            ego_r = sample_batch[SampleBatch.REWARDS][i]
+            ego_r = sample_batch[SampleBatch.REWARDS][i-1]
             # 1. == 使用自己的奖励当做邻居奖励 ==
             if config.get('nei_reward_if_no_nei', None) == 'self':
                 nei_rewards.append(ego_r)

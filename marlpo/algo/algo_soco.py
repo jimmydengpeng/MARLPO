@@ -135,7 +135,10 @@ class SOCOConfig(PPOConfig):
 
 
 class SOCOPolicy(PPOTorchPolicy):
-    # @override(PPOTorchPolicy)
+    """This Policy is mainly impelemented for reward shaping study
+        i.e. change the raw reward and mixed with neighbours' rewards.
+    """
+    @override(PPOTorchPolicy)
     def extra_action_out(self, input_dict, state_batches, model, action_dist):
         if self.config['use_sa_and_svo']:
             return {
@@ -167,118 +170,6 @@ class SOCOPolicy(PPOTorchPolicy):
                 }
 
 
-    def add_neighbour_rewards(
-        self,
-        sample_batch: SampleBatch
-    ) -> Tuple[List, List]:
-        infos = sample_batch[SampleBatch.INFOS]
-        nei_rewards = []
-        has_neighbours = []
-        # new_rews = []
-        num_neighbours = []
-
-        for i, info in enumerate(infos):
-            assert isinstance(info, dict)
-            if NEI_REWARDS not in info:
-                # assert sample_batch[SampleBatch.T][i] == i, (sample_batch[SampleBatch.T][i], sample_batch[SampleBatch.AGENT_INDEX])
-                nei_rewards.append(0.)
-                has_neighbours.append(False)
-                num_neighbours.append(0)
-                # new_rews.append(0)
-            else:
-                assert NEI_REWARDS in info
-                ego_r = sample_batch[SampleBatch.REWARDS][i]
-                # == NEI_REWARDS 列表不为空, 即有邻居 ==
-                nei_rewards_t = info[NEI_REWARDS][: self.config['num_neighbours']]
-                # print('>>>', self.config['num_neighbours'])
-                if nei_rewards_t:
-                    assert len(info[NEI_REWARDS]) > 0
-                    nei_r = 0
-                    # 1. == 使用基于规则的邻居奖励 ==
-                    if self.config[NEI_REWARDS_MODE] == MEAN_NEI_REWARDS:
-                        nei_r = np.mean(nei_rewards_t)
-                    elif self.config[NEI_REWARDS_MODE] == MAX_NEI_REWARDS:
-                        nei_r = np.max(nei_rewards_t)
-                    elif self.config[NEI_REWARDS_MODE] == NEAREST_NEI_REWARDS:
-                        nei_r = nei_rewards_t[0]
-                    elif self.config[NEI_REWARDS_MODE] == SUM_NEI_REWARDS:
-                        nei_r = np.sum(nei_rewards_t)
-
-                    # 2. or == 使用注意力选择一辆车或多辆车 ==
-                    else:
-                        atn_matrix = sample_batch[ATTENTION_MAXTRIX][i] #每行均为onehot (H, 1, 当时的邻居数量+1)
-                        atn_matrix = np.squeeze(atn_matrix) # (H, num_nei+1)
-
-                        # == 使用 one-hot 加权 ==
-                        if self.config[NEI_REWARDS_MODE] == ATTENTIVE_ONE_NEI_REWARD:
-                            select_mode = self.config['sp_select_mode']
-                            assert select_mode in ('numerical', 'bincount')
-                            #  == 使用各个头注意的哪个，然后对每个头计数，看哪个被注意次数最多
-                            if select_mode == 'bincount':
-                                # if self.config['onehot_attention']:
-                                index = np.argmax(atn_matrix, axis=-1) # (H, ) # 每行代表每个头不为0的元素所在的index
-                                # atn_matrix = np.argmax(atn_matrix, axis=-1)
-                                bincount = np.bincount(index) # (H, ) # 代表每行相同index出现的次数
-                                frequent_idx = np.argmax(bincount) # 返回次数最多那个index, 范围为 [0, 当时的邻居数量]
-                                # 注意每一时刻 ATTENTION_MATRIX 中 oneehot 向量的长度总是比邻居的数量大 1
-                                # 如果idx为0则选择的是自己
-                            #  == 把每个头的 one-hot 向量的值加起来然后做 argmax，也就是看哪个位置的数值的和最大就选哪个
-                            elif select_mode == 'numerical':
-                                frequent_idx = np.argmax(np.sum(atn_matrix, axis=0))
-                                
-                            if frequent_idx == 0:
-                                # TODO: add in config!
-                                # nei_r = ego_r # 使用自己的奖励
-                                nei_r = 0
-                            else:
-                                # svo = np.squeeze(sample_batch[SVO])[i]
-                                # svo = (svo + 1) * np.pi / 4
-                                nei_r = nei_rewards_t[frequent_idx-1]
-                                # new_r = np.cos(svo) * ego_r + np.sin(svo) * nei_r
-                                # new_rews.append(new_r)
-                                            
-                        # == 使用原始注意力得分加权 == # TODO
-                        elif self.config[NEI_REWARDS_MODE] == ATTENTIVE_ONE_NEI_REWARD:
-                            total_sums = np.sum(atn_matrix) # (H, num_nei+1) -> ()
-                            scores = np.sum(atn_matrix, axis=0) / total_sums # (H, num_nei+1) -> (num_nei+1, )
-                            ego_and_nei_r = np.concatenate((np.array([ego_r]), info[NEI_REWARDS]))
-                            # nei_r = info[NEI_REWARDS]
-                            length = min(len(scores), len(ego_and_nei_r))
-                            nei_r = np.sum((scores[:length] * ego_and_nei_r[:length])[1:])
-
-                    nei_rewards.append(nei_r)
-                    has_neighbours.append(True)
-                    num_neighbours.append(len(nei_rewards_t))
-                
-                else: # NEI_REWARDS 列表为空, 即没有邻居
-                    assert len(info[NEI_REWARDS]) == 0
-                    num_neighbours.append(0)
-                    # 1. == 此时邻居奖励为0 ==
-                    if self.config.get('nei_reward_if_no_nei', None) == 'self':
-                        nei_rewards.append(ego_r)
-                    elif self.config.get('nei_reward_if_no_nei', None) == '0':
-                        nei_rewards.append(0.)
-                    else:
-                        nei_rewards.append(0.)
-                    # or 2. == 使用自己的奖励当做邻居奖励 ==
-                    # or 3. == 使用自己的奖励 ==
-                    has_neighbours.append(False)
-
-
-        nei_rewards = np.array(nei_rewards).astype(np.float32)
-        has_neighbours = np.array(has_neighbours)
-        num_neighbours = np.array(num_neighbours)
-        # new_rewards = np.array(new_rews).astype(np.float32)
-        # printPanel({'atn_matrix': atn_matrix, 'nei_r': nei_r})
-
-        sample_batch[NEI_REWARDS] = nei_rewards
-        sample_batch[HAS_NEIGHBOURS] = has_neighbours
-        sample_batch[NUM_NEIGHBOURS] = num_neighbours
-
-        # printPanel(msg, f'{self.__class__.__name__}.postprocess_trajectory()')
-        return nei_rewards, has_neighbours
-    
-
     def clip_svo(self, svo, min_, max_):
         ''' svo in (-oo, +oo)'''
         if isinstance(svo, np.ndarray):
@@ -309,30 +200,18 @@ class SOCOPolicy(PPOTorchPolicy):
     def postprocess_trajectory(
         self, sample_batch, other_agent_batches=None, episode=None
     ):
-        ''' args:
-                sample_batch:
-                    ATTENTION_MAXTRIX: # 每行均为onehot (B, H, 1, num_agents) 
-                other_agent_batches: Dict[agent_id, Tuple['default_policy', SAPPOPolicy, SampleBatch]]
-        '''
-        msg = {}
-        msg['sample_batch'] = sample_batch
-
         with torch.no_grad():
             sample_batch[ORIGINAL_REWARDS] = sample_batch[SampleBatch.REWARDS].copy()
             sample_batch[NEI_REWARDS] = sample_batch[SampleBatch.REWARDS].copy() # for init ppo
 
             if episode: # filter _initialize_loss_from_dummy_batch()
-                msg['*'] = '*'
-                msg['agent id'] = f'agent{sample_batch[SampleBatch.AGENT_INDEX][0]}'
-                # msg['agent id last'] = f'agent{sample_batch[SampleBatch.AGENT_INDEX][-1]}'
-
+                sample_batch = add_neighbour_rewards(self.config, sample_batch)
                 if self.config['use_svo']:
                     ''' if use svo:
                         1. add neighbour rewards
                         2. use predicted svo to reshape the reward returned by env 
                             to get a new individual reward
                     '''
-                    sample_batch = add_neighbour_rewards(self.config, sample_batch)
                     nei_rewards = sample_batch[NEI_REWARDS]
                     has_neighbours = sample_batch[HAS_NEIGHBOURS]
 

@@ -29,13 +29,13 @@ SEEDS = [5000]
 NUM_AGENTS = 30
 NUM_NEIGHBOURS = 4
 # EXP_DES = "v<idv:0->0.2, team:1->0.8>"
-EXP_DES = "v5"
+EXP_DES = "v5-self_1_neir_1"
 # EXP_DES = "v1<kl_coeff><(0,0.5)(1, 0.5)>"
 
 if __name__ == "__main__":
     # === Get Args ===
     args = get_train_parser().parse_args()
-    num_agents, exp_name, num_rollout_workers, SEEDS, TEST = \
+    NUM_AGENTS, exp_name, num_rollout_workers, SEEDS, TEST = \
         get_other_training_configs(
             args=args,
             algo_name=ALGO_NAME, 
@@ -55,7 +55,7 @@ if __name__ == "__main__":
 
     # === Environmental Configs ===
     env_config = dict(
-        num_agents=tune.grid_search(num_agents),
+        num_agents=tune.grid_search(NUM_AGENTS),
         return_single_space=True,
         start_seed=tune.grid_search(SEEDS),
         delay_done=25,
@@ -70,14 +70,14 @@ if __name__ == "__main__":
         use_dict_obs=False,
         add_compact_state=False,
         add_nei_state=False,
-        num_neighbours=NUM_NEIGHBOURS, 
-        neighbours_distance=10,
+        # num_neighbours=NUM_NEIGHBOURS, 
+        neighbours_distance=tune.grid_search([15]),
     )
 
-    # ────────────── changable ─────────────────╮
-    stop = {"timesteps_total": 1.2e6}         # │ 
-    if TEST : stop ={"training_iteration": 1} # │
-    # ──────────────────────────────────────────╯
+    # ────────────── for test ────────────── # 
+    stop = {"timesteps_total": 1.2e6}            
+    if TEST : stop ={"training_iteration": 1}    
+    # ────────────────────────────────────── # 
 
     # === Algo Configs ===
     algo_config = (
@@ -113,11 +113,11 @@ if __name__ == "__main__":
                 fcnet_activation='relu',
             ),
             # use_kl_loss=False, # for single ppo's kl(pi_old|pi_new)
-            entropy_coeff=0.1, # 不能加上最大化熵?
+            entropy_coeff=0.01, # 不能加上最大化熵?
             grad_clip=40,
             grad_clip_by='norm',
             vf_loss_coeff=1,
-            kl_coeff=0.1,
+            kl_coeff=0,
             # kl_target=0,
             _enable_learner_api=False,
         )
@@ -125,45 +125,36 @@ if __name__ == "__main__":
         .environment(env=env_name, render_env=False, env_config=env_config, disable_env_checking=True)
         .update_from_dict(dict(
             # == IRAT ==
+            idv_policy_no_team=True,
             idv_clip_param=0.5,
             team_clip_param=0.5,
             # idv_kl_coeff=0.2,
             # idv_kl_end_coeff=0.5,
             idx_kl_coeff_schedule=[
                 (0, 0), 
-                (3*num_agents[0] * 1.2e6, 0.1)
+                (NUM_AGENTS[0] * 1.2e6, 0.01)
             ],
             team_kl_coeff_schedule=[
-                (0, 1), 
-                (3*num_agents[0] * 1.2e6, 0.1)
+                (0, 0.01), 
+                (NUM_AGENTS[0] * 1.2e6, 0)
             ],
             # team_kl_coeff=0.2,
             # team_kl_end_coeff=0.5,
             # == SaCo ==
-            svo_loss_coeff=0.1,
-            use_sa_and_svo=False, # whether use attention backbone or mlp backbone 
+            use_svo=True, #tune.grid_search([True, False]), # whether or not to use svo to change reward, if False, use original reward
             use_fixed_svo=False,
             fixed_svo=math.pi/4, #tune.grid_search([math.pi/4, math.pi/6, math.pi/3]),
-            use_social_attention=True, # TODO
-            use_svo=True, #tune.grid_search([True, False]), # whether or not to use svo to change reward, if False, use original reward
             svo_init_value='0', # in [ '0', 'pi/4', 'pi/2', 'random' ]
             svo_mode='full', #tune.grid_search(['full', 'restrict']),
-            nei_rewards_mode='mean_nei_rewards', #'attentive_one_nei_reward',
-            nei_rewards_add_coeff=0.2,
-            sp_select_mode='numerical', # only work if use onehot_attention!
-            # sp_select_mode=tune.grid_search(['bincount', 'numerical']), # only work if use onehot_attention!
-            # nei_rewards_mode=tune.grid_search([
-            #     'mean_nei_rewards',           # ─╮ 
-            #     'max_nei_rewards',            #  │
-            #     'nearest_nei_reward',         #  │──> Choose 1 alternatively
-            #     'attentive_one_nei_reward',   #  │
-            #     # 'attentive_all_nei_reward', # ─╯
-            # ]),
-            norm_adv=True,
+            # nei_rewards_mode='mean_nei_rewards', #'attentive_one_nei_reward',
+            nei_rewards_mode=tune.grid_search(['mean']), #'attentive_one_nei_reward',
+            nei_reward_if_no_nei='self',
+            nei_rewards_add_coeff=tune.grid_search([1]),
+            norm_adv=False,
             # == Common ==
             huber_value_loss=True,
             # old_value_loss=True,
-            num_neighbours=NUM_NEIGHBOURS, # the max num of neighbours policy will use
+            num_neighbours=tune.grid_search([NUM_NEIGHBOURS]), # the max num of neighbours in use
             # == CC ==
             use_central_critic=False,
             counterfactual=False,

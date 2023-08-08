@@ -81,13 +81,6 @@ class IRATConfig(PPOConfig):
     def validate(self):
         super().validate()
         assert self["fuse_mode"] in ["mf", "concat", "none"]
-        assert self[NEI_REWARDS_MODE] in [
-            MEAN_NEI_REWARDS,         # ─╮ 
-            MAX_NEI_REWARDS,          #  │
-            NEAREST_NEI_REWARDS,      #  │──> Choose 1 alternatively
-            ATTENTIVE_ONE_NEI_REWARD, #  │
-            ATTENTIVE_ALL_NEI_REWARD, # ─╯
-        ], self[NEI_REWARDS_MODE] 
 
         # common
         self.model["custom_model_config"]["num_neighbours"] = self["num_neighbours"]
@@ -97,13 +90,11 @@ class IRATConfig(PPOConfig):
         self.model["custom_model_config"]["fuse_mode"] = self["fuse_mode"]
         self.model["custom_model_config"]["counterfactual"] = self["counterfactual"]
 
-
         # get obs_shape for every env_config for attention encoder
         self.model["custom_model_config"]["env_config"] = self.env_config
 
         # == IRAT ==
         self.update_from_dict({"model": {"custom_model": "irat_model"}})
-        # self.idv_kl_anneal_gap = (self.idv_kl_coef - self.idv_kl_end_coef) / 
 
 
 class IRATModel(TorchModelV2, nn.Module):
@@ -505,12 +496,6 @@ class IRATPolicy(IRATKLCoeffSchedule, PPOTorchPolicy):
                 self.config["lambda"],
             )
 
-            # if isinstance(sample_batch[SampleBatch.INFOS][0], dict):
-            #     print('1------------', sample_batch[SampleBatch.INFOS][0]['agent_id'])
-            # else:
-            #     print('2------------')
-
-
             # == 记录 rollout 时的 V 值 == 
             # vpred_t = np.concatenate([sample_batch[SampleBatch.VF_PREDS], np.array([last_r])])
             # sample_batch[NEXT_VF_PREDS] = vpred_t[1:].copy()
@@ -598,12 +583,18 @@ class IRATPolicy(IRATKLCoeffSchedule, PPOTorchPolicy):
         idv_new_dist_entropy = idv_new_action_dist.entropy()
         team_new_dist_entropy = team_new_action_dist.entropy()
 
+        # == normalize advatages ==
+        if self.config['norm_adv']:
+            idv_adv = standardized(idv_adv)
+            team_adv = standardized(team_adv)
+
         # == obj ==
-        idv_adv_ = standardized(idv_adv)
-        idv_loss = self.get_idv_loss(idv_p_ratio, idv_team_p_ratio, idv_adv_)
-        # idv_loss = self.get_idv_loss_without_team(idv_p_ratio, idv_team_p_ratio, idv_adv_)
-        team_adv_ = standardized(team_adv)
-        team_loss = self.get_team_loss(team_idv_p_ratio, team_adv_)
+        if self.config.get('idv_policy_no_team', False):
+            idv_loss = self.get_idv_loss_without_team(idv_p_ratio, idv_team_p_ratio, idv_adv)
+        else:
+            idv_loss = self.get_idv_loss(idv_p_ratio, idv_team_p_ratio, idv_adv)
+
+        team_loss = self.get_team_loss(team_idv_p_ratio, team_adv)
         
         if torch.isnan(idv_loss).any():
             print(" ──────────── idv loss has nan ──────────── ")
@@ -689,6 +680,7 @@ class IRATPolicy(IRATKLCoeffSchedule, PPOTorchPolicy):
         # if necessary.
         if self.config["kl_coeff"] > 0.0:
             total_loss += self.kl_coeff * mean_idv_2_old_policy_kl_loss
+
 
         # === STATS ===
         model.tower_stats["total_loss"] = total_loss
@@ -808,7 +800,7 @@ class IRATPolicy(IRATKLCoeffSchedule, PPOTorchPolicy):
         # individual actor update
         imp_weights = idv_p_ratio
 
-        surr1 = imp_weights * idv_adv
+        surr1 = idv_adv * imp_weights
         surr2 = idv_adv * torch.clamp(
             imp_weights, 
             1.0 - self.config["clip_param"], 

@@ -1,4 +1,5 @@
 import argparse, sys
+from typing import List, Union
 
 
 def get_train_parser():
@@ -14,26 +15,21 @@ def get_train_parser():
     return parser
 
 
-def get_num_agents_str(num_agents):
-    if isinstance(num_agents, int):
-        return str(num_agents)
-
-    if isinstance(num_agents, list):
-        l = []
-        for n in num_agents:
-            l.append(str(n))
-        return '-'.join(l)
-
 
 def get_other_training_configs(
     args, 
     algo_name, 
     exp_des, 
     scene, 
-    num_agents, 
+    num_agents: Union[int, List[int]], 
     seeds: list,
     test: bool,
 ):
+    '''Args:
+
+        Returns:
+            num_agents: list
+    '''
     test = args.test if args.test else test
     if test:
         exp_name = "TEST"
@@ -42,6 +38,8 @@ def get_other_training_configs(
         num_agents = [2]
     else:
         exp_name = get_exp_name(algo_name, exp_des, scene, num_agents)
+        if not isinstance(num_agents, list) and isinstance(num_agents, int):
+            num_agents = [num_agents]
         num_rollout_workers = get_num_workers()
 
     if args.num_workers:
@@ -62,6 +60,17 @@ def get_abbr_scene(name: str):
     }
     assert name in scenes
     return scenes[name]
+
+
+def get_num_agents_str(num_agents):
+    if isinstance(num_agents, int):
+        return str(num_agents)
+
+    if isinstance(num_agents, list):
+        l = []
+        for n in num_agents:
+            l.append(str(n))
+        return '-'.join(l)
 
 
 def get_exp_name(algo_name, exp_des, scene, num_agents):

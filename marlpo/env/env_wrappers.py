@@ -91,7 +91,7 @@ WINDOW_SIZE = 151
 NUM_NEIGHBOURS = 4
 
 
-class TrackingEnv:
+class TrackingEnv_OLD:
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         # self.distance_tracker = defaultdict(dict)
@@ -139,7 +139,7 @@ class TrackingEnv:
 
 
 
-class CCEnv(TrackingEnv):
+class CCEnv(TrackingEnv_OLD):
 # class CCEnv:
     """
     This class maintains a distance map of all agents and appends the
@@ -943,7 +943,7 @@ class TrackingEnv:
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.last_dist = defaultdict(int)
+        self.last_dist = defaultdict(float)
 
     def reset(
         self, 
@@ -951,6 +951,7 @@ class TrackingEnv:
         seed: Optional[int] = None,
         options: Optional[dict] = None
     ):
+        print('1-----------------')
         obs, infos = super().reset(seed=seed)
 
         self.distance_tracker = {}
@@ -1026,6 +1027,118 @@ def get_tracking_md_env(env_class):
     return TMP
 
 
+
+class NeighbourMDEnv_NEW(TrackingEnv):
+    """
+    This class maintains a distance map of all agents and appends the
+    neighbours' names and distances into info at each step.
+    We should subclass this class to a base environment class.
+
+    Its supper class will be a MetaDrive env, e.g., 
+    from MultiAgentIntersectionEnv to BaseEnv (MetaDrive).
+    """
+    @classmethod
+    def default_config(cls):
+        config = super().default_config()
+        config["neighbours_distance"] = 40
+        return config
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.distance_map = defaultdict(lambda: defaultdict(lambda: float("inf")))
+    
+    def reset(
+        self, 
+        *,
+        seed: Union[None, int] = None,
+        options: Optional[dict] = None
+    ): 
+        obs, infos = super().reset(seed=seed)
+        infos = self.process_infos(infos, rewards=None)
+        return obs, infos
+
+    def step(self, actions):
+        obs, r, tm, tr, infos = super().step(actions)
+        infos = self.process_infos(infos, rewards=r)
+        return obs, r, tm, tr, infos
+
+    def process_infos(self, infos, rewards=None):
+        self._update_distance_map()
+        self._add_neighbour_info(infos, rewards)
+
+    def _update_distance_map(self, dones=None):
+        self.distance_map.clear()
+        if hasattr(self, "vehicles_including_just_terminated"):
+            vehicles = self.vehicles_including_just_terminated
+            # if dones is not None:
+            #     assert (set(dones.keys()) - set(["__all__"])) == set(vehicles.keys()), (dones, vehicles)
+        else:
+            vehicles = self.vehicles  # Fallback to old version MetaDrive, but this is not accurate!
+        keys = [k for k, v in vehicles.items() if v is not None]
+        for c1 in range(0, len(keys) - 1):
+            for c2 in range(c1 + 1, len(keys)):
+                k1 = keys[c1]
+                k2 = keys[c2]
+                p1 = vehicles[k1].position
+                p2 = vehicles[k2].position
+                distance = np.linalg.norm(p1 - p2)
+                self.distance_map[k1][k2] = distance
+                self.distance_map[k2][k1] = distance
+
+
+    def _find_in_range(self, v_id, distance):
+        if distance <= 0:
+            return [], []
+        max_distance = distance
+        dist_to_others = self.distance_map[v_id]
+        dist_to_others_list = sorted(dist_to_others, key=lambda k: dist_to_others[k])
+        ret = [
+            dist_to_others_list[i] for i in range(len(dist_to_others_list))
+            if dist_to_others[dist_to_others_list[i]] < max_distance
+        ]
+        ret2 = [
+            dist_to_others[dist_to_others_list[i]] for i in range(len(dist_to_others_list))
+            if dist_to_others[dist_to_others_list[i]] < max_distance
+        ]
+        return ret, ret2
+
+    def _add_neighbour_info(self, infos, rewards=None):
+        for agent in infos:
+            infos[agent]["agent_id"] = agent
+            infos[agent]["all_agents"] = list(infos.keys())
+            neighbours, nei_distances = self._find_in_range(agent, 
+                                            self.config["neighbours_distance"])
+            infos[agent]["neighbours"] = neighbours
+            infos[agent]["neighbours_distance"] = nei_distances
+
+            if rewards:
+                nei_rewards = [rewards[nei] for nei in neighbours]
+                infos[agent][NEI_REWARDS] = nei_rewards
+                # if nei_rewards:
+                    # agent_info["nei_rewards"] = sum(nei_rewards) / len(nei_rewards)
+                # else:
+                #     i[agent_name]["nei_rewards"] = 0.0  # Do not provide neighbour rewards if no neighbour
+            else:
+                infos[agent][NEI_REWARDS] = []
+
+def get_neighbour_md_env_new(env_class):
+    """Augment a MetaDrive env with new functions,
+        i.e., providing neighbours in the info dict for each agent. 
+    
+    Args:
+        env_class: A MetaDrive env class.
+
+    Returns:
+        An augmented MetaDrive env class. 
+    """
+    name = env_class.__name__
+
+    class TMP(NeighbourMDEnv_NEW, env_class):
+        pass
+
+    TMP.__name__ = name
+    TMP.__qualname__ = name
+    return TMP
 
 
 
@@ -1453,7 +1566,9 @@ def get_rllib_compatible_env(env_class, return_class=False):
     Args:
         env_class: A MetaDrive env class
     """
-    env_name = env_class.__name__
+    env_name = env_class.__name__ # e.g. MultiAgentIntersectionEnv
+    if env_name.startswith('MultiAgent'):
+        env_name = env_name[len('MultiAgent'): -3]
 
     class MAEnv(env_class, MultiAgentEnv):        
         # == rllib MultiAgentEnv requries: ==

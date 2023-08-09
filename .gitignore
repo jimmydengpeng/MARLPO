@@ -1438,3 +1438,4 @@ experiments/
 exp_results/
 tensorboard.sh
 exp*/
+*.ipynb

@@ -5,7 +5,7 @@ import math
 
 from algo import IRATConfig, IRATTrainer
 from callbacks import MultiAgentDrivingCallbacks
-from env.env_wrappers import get_rllib_compatible_env, get_neighbour_md_env
+from env.env_wrappers import get_rllib_compatible_env, get_neighbour_env
 from env.env_utils import get_metadrive_ma_env_cls
 from utils import (
     get_train_parser, 
@@ -27,9 +27,10 @@ SEEDS = [5000]
 
 # NUM_AGENTS = [30]
 NUM_AGENTS = 30
+NEI_DISTANCE = 40
 NUM_NEIGHBOURS = 4
 # EXP_DES = "v<idv:0->0.2, team:1->0.8>"
-EXP_DES = "v5-self_1_neir_1"
+EXP_DES = "v5-more-alt-1-no-grad-clip"
 # EXP_DES = "v1<kl_coeff><(0,0.5)(1, 0.5)>"
 
 if __name__ == "__main__":
@@ -48,10 +49,9 @@ if __name__ == "__main__":
     # === Get Environment ===
     env_name, env_cls = \
         get_rllib_compatible_env(
-            get_neighbour_md_env(
-            get_metadrive_ma_env_cls(SCENE)), 
-            return_class=True
-        )
+            get_neighbour_env(
+                get_metadrive_ma_env_cls(SCENE)), 
+            return_class=True)
 
     # === Environmental Configs ===
     env_config = dict(
@@ -63,19 +63,13 @@ if __name__ == "__main__":
             lidar=dict(
                 num_lasers=72, 
                 distance=40, 
-                num_others=0,
-            )
-        ),
+                num_others=0)),
         # == neighbour config ==
-        use_dict_obs=False,
-        add_compact_state=False,
-        add_nei_state=False,
-        # num_neighbours=NUM_NEIGHBOURS, 
-        neighbours_distance=tune.grid_search([15]),
+        neighbours_distance=tune.grid_search([NEI_DISTANCE]),
     )
 
     # ────────────── for test ────────────── # 
-    stop = {"timesteps_total": 1.2e6}            
+    stop = {"timesteps_total": 1e6}            
     if TEST : stop ={"training_iteration": 1}    
     # ────────────────────────────────────── # 
 
@@ -114,10 +108,10 @@ if __name__ == "__main__":
             ),
             # use_kl_loss=False, # for single ppo's kl(pi_old|pi_new)
             entropy_coeff=0.01, # 不能加上最大化熵?
-            grad_clip=40,
-            grad_clip_by='norm',
+            # grad_clip=40,
+            # grad_clip_by='norm',
             vf_loss_coeff=1,
-            kl_coeff=0,
+            kl_coeff=0.2,
             # kl_target=0,
             _enable_learner_api=False,
         )
@@ -132,10 +126,10 @@ if __name__ == "__main__":
             # idv_kl_end_coeff=0.5,
             idx_kl_coeff_schedule=[
                 (0, 0), 
-                (NUM_AGENTS[0] * 1.2e6, 0.01)
+                (NUM_AGENTS[0] * 1.2e6, 10)
             ],
             team_kl_coeff_schedule=[
-                (0, 0.01), 
+                (0, 1), 
                 (NUM_AGENTS[0] * 1.2e6, 0)
             ],
             # team_kl_coeff=0.2,
@@ -148,9 +142,9 @@ if __name__ == "__main__":
             svo_mode='full', #tune.grid_search(['full', 'restrict']),
             # nei_rewards_mode='mean_nei_rewards', #'attentive_one_nei_reward',
             nei_rewards_mode=tune.grid_search(['mean']), #'attentive_one_nei_reward',
-            nei_reward_if_no_nei='self',
+            nei_reward_if_no_nei='0',
             nei_rewards_add_coeff=tune.grid_search([1]),
-            norm_adv=False,
+            norm_adv=True,
             # == Common ==
             huber_value_loss=True,
             # old_value_loss=True,

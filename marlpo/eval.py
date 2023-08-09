@@ -220,7 +220,7 @@ def get_algo_new():
     max_ego_and_nei_norm_a='exp_SoCO/SOCO_Inter_30agents_v2[mean_nei_r][max_local_r])/SOCOTrainer_MultiAgentIntersectionEnv_86376_00000_0_num_agents=30,start_seed=5000,nei_rewards_mode=mean_nei_rewards,norm_adv=True,_2023-08-01_22-41-39/checkpoint_001090'
 
     ppp='exp_IRAT/IRAT_Inter_30agents_v5/IRATTrainer_Intersection_8c77d_00000_0_num_agents=30,start_seed=5000,nei_rewards_mode=sum_2023-08-06_19-15-28/checkpoint_000830'
-    tmp='exp_IRAT/IRAT_Inter_30agents_v5-self_neir/IRATTrainer_Intersection_4f328_00000_0_neighbours_distance=10,num_agents=30,start_seed=5000,nei_rewards_add_coeff=0.5000,nei_rewar_2023-08-07_12-46-01/checkpoint_000230'
+    tmp='exp_IRAT/IRAT_Inter_30agents_v5-self_1_neir_1/IRATTrainer_Intersection_3fd5f_00000_0_neighbours_distance=15,num_agents=30,start_seed=5000,nei_rewards_add_coeff=1,nei_rewards_mo_2023-08-08_14-10-18/checkpoint_000820'
 
     # checkpoint_path = ScCO_30a_5000_intersection_no_others_nei_dis_10m
     checkpoint_path = ScCO_30a_5000_intersection_no_others_nei_dis_10m_max_r_init_0
@@ -231,7 +231,8 @@ def get_algo_new():
     # checkpoint_path = ippo_best
     # checkpoint_path = SoCO_DC
     # checkpoint_path = max_ego_and_nei_norm_a
-    checkpoint_path = ppp
+    # checkpoint_path = ppp
+    checkpoint_path = tmp
     # checkpoint_path = ippo_5000
     algo = Algorithm.from_checkpoint(checkpoint_path)
 

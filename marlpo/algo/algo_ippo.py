@@ -5,11 +5,15 @@ from ray.rllib.evaluation.postprocessing import Postprocessing
 from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils.framework import try_import_torch
+from ray.rllib.utils.sgd import standardized
 from ray.rllib.utils.torch_utils import (
     explained_variance,
     sequence_mask,
     warn_if_infinite_kl_divergence,
 )
+
+from utils.debug import get_logger
+logger = get_logger()
 
 torch, nn = try_import_torch()
 
@@ -18,25 +22,6 @@ class IPPOConfig(PPOConfig):
     def __init__(self, algo_class=None):
         """Initializes a PPOConfig instance."""
         super().__init__(algo_class=algo_class or IPPOTrainer)
-
-        # self.sgd_minibatch_size = 512
-
-        # self.rollout_fragment_length = 200
-        # self.train_batch_size = 2000
-
-        # self.num_sgd_iter = 5
-        # self.lr = 3e-4
-        # self.clip_param = 0.2
-        # self.lambda_ = 0.95
-
-        # self.num_cpus_per_worker = 0.2
-        # self.num_cpus_for_local_worker = 1
-
-        # # New RLLib keys
-        # self.num_rollout_workers = 5
-        # # self.framework = "torch"
-        # self.framework_str = "torch"
-
         # Two important updates
         self.vf_clip_param = 100
         self.old_value_loss = True
@@ -125,9 +110,18 @@ class IPPOPolicy(PPOTorchPolicy):
         curr_entropy = curr_action_dist.entropy()
         mean_entropy = reduce_mean_valid(curr_entropy)
 
+        # == normalize advatages ==
+        if self.config.get('norm_adv', False):
+            adv = standardized(train_batch[Postprocessing.ADVANTAGES])
+            logger.warning(
+                "train_batch[Postprocessing.ADVANTAGES].mean(): {}".format(
+                    torch.mean(train_batch[Postprocessing.ADVANTAGES])
+                )
+            )
+
         surrogate_loss = torch.min(
-            train_batch[Postprocessing.ADVANTAGES] * logp_ratio,
-            train_batch[Postprocessing.ADVANTAGES] *
+            adv * logp_ratio,
+            adv *
             torch.clamp(logp_ratio, 1 - self.config["clip_param"], 1 + self.config["clip_param"]),
         )
 

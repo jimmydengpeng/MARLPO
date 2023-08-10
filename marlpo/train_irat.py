@@ -30,7 +30,7 @@ NUM_AGENTS = 30
 NEI_DISTANCE = 40
 NUM_NEIGHBOURS = 4
 # EXP_DES = "v<idv:0->0.2, team:1->0.8>"
-EXP_DES = "v5-more-alt-1-no-grad-clip"
+EXP_DES = "(no-grad_clip)(no-norm_adv)(mean_nei_r)"
 # EXP_DES = "v1<kl_coeff><(0,0.5)(1, 0.5)>"
 
 if __name__ == "__main__":
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     )
 
     # ────────────── for test ────────────── # 
-    stop = {"timesteps_total": 1e6}            
+    stop = {"timesteps_total": 1.2e6}            
     if TEST : stop ={"training_iteration": 1}    
     # ────────────────────────────────────── # 
 
@@ -144,7 +144,7 @@ if __name__ == "__main__":
             nei_rewards_mode=tune.grid_search(['mean']), #'attentive_one_nei_reward',
             nei_reward_if_no_nei='0',
             nei_rewards_add_coeff=tune.grid_search([1]),
-            norm_adv=True,
+            norm_adv=tune.grid_search([True]),
             # == Common ==
             huber_value_loss=True,
             # old_value_loss=True,

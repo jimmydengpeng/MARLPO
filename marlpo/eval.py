@@ -21,7 +21,7 @@ from metadrive import (
 # from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env, get_ccppo_env
 from utils.debug import print, printPanel
 
-
+from env.env_wrappers import get_rllib_compatible_env, get_tracking_md_env
 
 # === Set a lot of configs ===
 
@@ -222,6 +222,12 @@ def get_algo_new():
     ppp='exp_IRAT/IRAT_Inter_30agents_v5/IRATTrainer_Intersection_8c77d_00000_0_num_agents=30,start_seed=5000,nei_rewards_mode=sum_2023-08-06_19-15-28/checkpoint_000830'
     tmp='exp_IRAT/IRAT_Inter_30agents_v5-self_1_neir_1/IRATTrainer_Intersection_3fd5f_00000_0_neighbours_distance=15,num_agents=30,start_seed=5000,nei_rewards_add_coeff=1,nei_rewards_mo_2023-08-08_14-10-18/checkpoint_000820'
 
+    irat_np_clip='exp_IRAT/IRAT_Inter_30agents_v5-more-alt-1-no-grad-clip/IRATTrainer_Intersection_54688_00000_0_neighbours_distance=40,num_agents=30,start_seed=5000,nei_rewards_add_coeff=1,nei_rewards_mo_2023-08-09_20-14-46/checkpoint_000977'
+
+    ippo_='exp_baselines/IPPO_Inter_4agents_(8_seeds)(4_workers)/IPPOTrainer_MultiAgentIntersectionEnv_7d9c8_00000_0_num_agents=30,start_seed=5000,num_others=0_2023-08-02_15-16-25/checkpoint_000920'
+
+    ippo_tmp='exp_IPPO/IPPO_Inter_4agents_(7_workers)(norm_adv)/IPPOTrainer_Intersection_a91fa_00000_0_num_agents=30,start_seed=5000,num_others=0_2023-08-09_21-28-43/checkpoint_000860'
+
     # checkpoint_path = ScCO_30a_5000_intersection_no_others_nei_dis_10m
     checkpoint_path = ScCO_30a_5000_intersection_no_others_nei_dis_10m_max_r_init_0
     # checkpoint_path = ScCO_30a_5000_intersection_no_others_nei_dis_10m_coeff_1
@@ -232,7 +238,8 @@ def get_algo_new():
     # checkpoint_path = SoCO_DC
     # checkpoint_path = max_ego_and_nei_norm_a
     # checkpoint_path = ppp
-    checkpoint_path = tmp
+    checkpoint_path = irat_np_clip
+    checkpoint_path = ippo_tmp
     # checkpoint_path = ippo_5000
     algo = Algorithm.from_checkpoint(checkpoint_path)
 
@@ -281,13 +288,18 @@ def compute_actions(algo: Algorithm, obs, extra_actions=False):
 
 if __name__ == "__main__":
     from metadrive.component.vehicle.base_vehicle import BaseVehicle
-    from env.env_wrappers import get_rllib_cc_env, get_rllib_compatible_env, get_neighbour_md_env
+    from env.env_wrappers import get_rllib_compatible_env, get_neighbour_env
     from env.env_utils import get_metadrive_ma_env_cls
 
     env_name, env_cls = get_rllib_compatible_env(
-                        get_neighbour_md_env(
+                        get_neighbour_env(
                         get_metadrive_ma_env_cls(SCENE)), 
                         return_class=True)
+
+    # env_name, env_cls = get_rllib_compatible_env(
+    #                         get_tracking_md_env(
+    #                             get_metadrive_ma_env_cls(SCENE)
+    #                         ), return_class=True)
 
    # === Environmental Setting ===
     env_config = dict(
@@ -307,11 +319,11 @@ if __name__ == "__main__":
             )
         ),
         # == neighbour config ==
-        use_dict_obs=False,
-        add_compact_state=False, # add BOTH ego- & nei- compact-state simultaneously
-        add_nei_state=False,
-        num_neighbours=4,
-        neighbours_distance=10,
+        # use_dict_obs=False,
+        # add_compact_state=False, # add BOTH ego- & nei- compact-state simultaneously
+        # add_nei_state=False,
+        # num_neighbours=4,
+        # neighbours_distance=40,
     )
     
     algo = get_algo_new()

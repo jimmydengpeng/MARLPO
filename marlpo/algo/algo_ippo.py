@@ -118,6 +118,8 @@ class IPPOPolicy(PPOTorchPolicy):
                     torch.mean(train_batch[Postprocessing.ADVANTAGES])
                 )
             )
+        else:
+            adv = train_batch[Postprocessing.ADVANTAGES]
 
         surrogate_loss = torch.min(
             adv * logp_ratio,

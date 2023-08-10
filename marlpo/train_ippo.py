@@ -24,7 +24,7 @@ SEEDS = [5000]
 
 NUM_AGENTS = [4]
 
-EXP_DES = "(7_workers)(norm_adv)"
+EXP_DES = "(7_workers)(no_norm_adv)"
 INDEPENDT = False
 
 
@@ -63,7 +63,7 @@ if __name__ == "__main__":
         )))
 
     # ────────────── for test ────────────── # 
-    stop = {"timesteps_total": 1.2e6}            
+    stop = {"timesteps_total": 1e6}            
     if TEST : stop ={"training_iteration": 5}    
     # ────────────────────────────────────── # 
 
@@ -96,7 +96,7 @@ if __name__ == "__main__":
             disable_env_checking=True,
         )
         .update_from_dict(dict(
-            norm_adv=True,
+            norm_adv=False,
         ))
     )
 

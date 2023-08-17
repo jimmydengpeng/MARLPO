@@ -314,6 +314,10 @@ class NeighbourEnv(TrackingEnv):
     def default_config(cls):
         config = super().default_config()
         config["neighbours_distance"] = 40
+        # ====== for backward compatible =====
+        config['add_nei_state'] = False
+        config['use_dict_obs'] = False
+        config['add_compact_state'] = False
         return config
 
     def __init__(self, *args, **kwargs):

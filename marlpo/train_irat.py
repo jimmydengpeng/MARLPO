@@ -27,10 +27,10 @@ SEEDS = [5000]
 
 # NUM_AGENTS = [30]
 NUM_AGENTS = 30
-NEI_DISTANCE = 40
+NEI_DISTANCE = [40]
 NUM_NEIGHBOURS = 4
 # EXP_DES = "v<idv:0->0.2, team:1->0.8>"
-EXP_DES = "(no-grad_clip)(no-norm_adv)(mean_nei_r)"
+EXP_DES = "BEST(0,1)(10,0)_4"
 # EXP_DES = "v1<kl_coeff><(0,0.5)(1, 0.5)>"
 
 if __name__ == "__main__":
@@ -65,11 +65,14 @@ if __name__ == "__main__":
                 distance=40, 
                 num_others=0)),
         # == neighbour config ==
-        neighbours_distance=tune.grid_search([NEI_DISTANCE]),
+        add_nei_state=False, 
+        use_dict_obs=False,
+        add_compact_state=False,
+        neighbours_distance=tune.grid_search(NEI_DISTANCE),
     )
 
     # ────────────── for test ────────────── # 
-    stop = {"timesteps_total": 1.2e6}            
+    stop = {"timesteps_total": 1.3e6}            
     if TEST : stop ={"training_iteration": 1}    
     # ────────────────────────────────────── # 
 
@@ -78,6 +81,7 @@ if __name__ == "__main__":
         IRATConfig()
         .framework('torch')
         .resources(
+            num_cpus_per_worker=0.125,
             **get_training_resources()
         )
         .rollouts(
@@ -104,14 +108,14 @@ if __name__ == "__main__":
                 custom_model_config=dict(
                 ),
                 free_log_std=False,
-                fcnet_activation='relu',
+                fcnet_activation='tanh',
             ),
             # use_kl_loss=False, # for single ppo's kl(pi_old|pi_new)
-            entropy_coeff=0.01, # 不能加上最大化熵?
+            entropy_coeff=tune.grid_search([0, 0.01]), # 不能加上最大化熵? # 默认为0 
             # grad_clip=40,
             # grad_clip_by='norm',
             vf_loss_coeff=1,
-            kl_coeff=0.2,
+            kl_coeff=0, # 约束新旧策略更新 # 默认为0.2 
             # kl_target=0,
             _enable_learner_api=False,
         )
@@ -126,11 +130,11 @@ if __name__ == "__main__":
             # idv_kl_end_coeff=0.5,
             idx_kl_coeff_schedule=[
                 (0, 0), 
-                (NUM_AGENTS[0] * 1.2e6, 10)
+                (1.3*NUM_AGENTS[0] * 1.5e6, tune.grid_search([0.5, 1, 1.5]))
             ],
             team_kl_coeff_schedule=[
-                (0, 1), 
-                (NUM_AGENTS[0] * 1.2e6, 0)
+                (0, tune.grid_search([2, 5, 10])), 
+                (1.3*NUM_AGENTS[0] * 1.5e6, 0)
             ],
             # team_kl_coeff=0.2,
             # team_kl_end_coeff=0.5,
@@ -142,8 +146,8 @@ if __name__ == "__main__":
             svo_mode='full', #tune.grid_search(['full', 'restrict']),
             # nei_rewards_mode='mean_nei_rewards', #'attentive_one_nei_reward',
             nei_rewards_mode=tune.grid_search(['mean']), #'attentive_one_nei_reward',
-            nei_reward_if_no_nei='0',
-            nei_rewards_add_coeff=tune.grid_search([1]),
+            nei_reward_if_no_nei='self',
+            nei_rewards_add_coeff=tune.grid_search([1, 1.5]),
             norm_adv=tune.grid_search([True]),
             # == Common ==
             huber_value_loss=True,

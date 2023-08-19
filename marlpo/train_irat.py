@@ -30,7 +30,7 @@ NUM_AGENTS = 30
 NEI_DISTANCE = 40
 NUM_NEIGHBOURS = 4
 # EXP_DES = "v<idv:0->0.2, team:1->0.8>"
-EXP_DES = "BEST(0,1)(10,0)_6"
+EXP_DES = "BEST(0,1.25)(10,0)_7"
 # EXP_DES = "v1<kl_coeff><(0,0.5)(1, 0.5)>"
 
 if __name__ == "__main__":
@@ -72,7 +72,7 @@ if __name__ == "__main__":
     )
 
     # ────────────── for test ────────────── # 
-    stop = {"timesteps_total": 1.25e6}            
+    stop = {"timesteps_total": 1.5e6}            
     if TEST : stop ={"training_iteration": 1}    
     # ────────────────────────────────────── # 
 
@@ -130,11 +130,11 @@ if __name__ == "__main__":
             # idv_kl_end_coeff=0.5,
             idx_kl_coeff_schedule=[
                 (0, 0), 
-                (tune.grid_search([0.8*NUM_AGENTS[0]*1.25e6, 1*NUM_AGENTS[0]*1.25e6]), 1)
+                (0.85*NUM_AGENTS[0]*1.5e6, 1)
             ],
             team_kl_coeff_schedule=[
                 (0, 10), 
-                (tune.grid_search([0.8*NUM_AGENTS[0]*1.25e6, 1*NUM_AGENTS[0]*1.25e6]), 0)
+                (tune.grid_search([1.15*NUM_AGENTS[0]*1.5e6, 1.25*NUM_AGENTS[0]*1.5e6]), 0)
             ],
             # team_kl_coeff=0.2,
             # team_kl_end_coeff=0.5,
@@ -166,8 +166,8 @@ if __name__ == "__main__":
         config=algo_config,
         stop=stop,
         exp_name=exp_name,
-        checkpoint_freq=10,
-        keep_checkpoints_num=3,
+        checkpoint_freq=5,
+        keep_checkpoints_num=5,
         num_gpus=0,
         results_path='exp_IRAT',
         test_mode=TEST,

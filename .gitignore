@@ -1438,3 +1438,5 @@ experiments/
 exp_results/
 tensorboard.sh
 exp*/
+
+evaluate_results

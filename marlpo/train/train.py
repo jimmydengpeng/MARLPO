@@ -37,7 +37,8 @@ def train(
         checkpoint_config = air.CheckpointConfig(
             num_to_keep=keep_checkpoints_num,
             checkpoint_frequency=checkpoint_freq,
-            checkpoint_score_attribute="RewardMean", # see callbacks.py
+            # checkpoint_score_attribute="RewardMean", # see callbacks.py
+            checkpoint_score_attribute="SuccessRate", # see callbacks.py
         )
     else:
         checkpoint_config = air.CheckpointConfig(checkpoint_at_end=True)

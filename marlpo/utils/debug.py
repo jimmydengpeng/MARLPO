@@ -309,6 +309,13 @@ def printPanel(
     print(Panel.fit(msg, title=title, **kwargs))
 
 
+def dict_to_panel(data, title=None):
+    assert isinstance(data, dict)
+    new_dict = process_value(data, raw_tensor=False)
+    msg = dict_to_str(new_dict, align=True) 
+    return Panel.fit(msg, title=title)
+
+
 if __name__ == '__main__':
     import math
     t2 = torch.tensor(True)

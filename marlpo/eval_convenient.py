@@ -241,7 +241,9 @@ def get_algo_new():
 
     ippo_4wokers='exp_IPPO/IPPO_Inter_4agents_(4_workers)(no_norm_adv)/IPPOTrainer_Intersection_3bf41_00000_0_num_agents=30,start_seed=5000,num_others=0_2023-08-11_20-04-33/checkpoint_001172'
 
-    irat_temp='exp_IRAT/IRAT_Inter_30agents_BEST(0,1)(10,0)_4/IRATTrainer_Intersection_e4cf1_00006_6_entropy_coeff=0,neighbours_distance=40,num_agents=30,start_seed=5000,1=0.5000,nei_rewards_a_2023-08-15_13-16-30/checkpoint_000900'
+    irat_temp='exp_IRAT/IRAT_Inter_30agents_BEST(0,1)(10,0)_4/IRATTrainer_Intersection_e4cf1_00032_32_entropy_coeff=0,neighbours_distance=40,num_agents=30,start_seed=5000,1=1,nei_rewards_add_c_2023-08-16_23-09-58/checkpoint_001240'
+
+    
     
 
     # checkpoint_path = ScCO_30a_5000_intersection_no_others_nei_dis_10m

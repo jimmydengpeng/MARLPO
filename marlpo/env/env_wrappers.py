@@ -215,8 +215,8 @@ def count_neighbours(infos):
 
 
 class TrackingEnv:
-    """Add a MetaDrive env some new functions, e.g.,
-       tracking each agent's distance so far every step.
+    """Add a MetaDrive env some new functions, e.g., tracking 
+        each agent's distance so far every step.
 
        This class will be a subclass of a MetaDrive class.
     """

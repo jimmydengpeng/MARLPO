@@ -1,7 +1,7 @@
 import time
 import math
 from collections import namedtuple, defaultdict, OrderedDict
-from typing import List, Union
+from typing import List, Tuple, Union
 from tqdm import tqdm
 from tabulate import tabulate
 import numpy as np
@@ -16,18 +16,68 @@ from metadrive.component.vehicle.base_vehicle import BaseVehicle
 
 from utils.debug import colorize
 
+ROUNDABOUT = "roundabout"
+INTERSECTION = "intersection"
+TOLLGATE = "tollgate"
+BOTTLENECK = "bottleneck"
+PARKINGLOT = "parkinglot"
 
-SCENES = {
-    "roundabout": MultiAgentRoundaboutEnv,
-    "intersection": MultiAgentIntersectionEnv,
-    "tollgate": MultiAgentTollgateEnv,
-    "bottleneck": MultiAgentBottleneckEnv,
-    "parkinglot": MultiAgentParkingLotEnv,
+SCENE_NAME_2_CLS = {
+    ROUNDABOUT: MultiAgentRoundaboutEnv,
+    INTERSECTION: MultiAgentIntersectionEnv,
+    TOLLGATE: MultiAgentTollgateEnv,
+    BOTTLENECK: MultiAgentBottleneckEnv,
+    PARKINGLOT: MultiAgentParkingLotEnv,
 }
 
+ABBR_SCENE_NAMES = {
+    ROUNDABOUT: 'Round',
+    INTERSECTION: 'Inter',
+    TOLLGATE: 'Tollgate',
+    BOTTLENECK: 'Bottle',
+    PARKINGLOT: 'Parking',
+}
 
-def get_metadrive_ma_env_cls(scene_name: str):
-    return SCENES[scene_name]
+def parse_env_name(env_name: str) -> Tuple[str]:
+    ''' 解析任意形式的环境名称，返回一个内部使用全局变量名称和简写
+    Args:
+        env_name: in any form or case
+            1. full name: e.g. 'MultiAgentIntersectionEnv'
+            2. short name: e.g. 'Intersection'
+            3. abbr. name: e.g. 'Inter'
+            4. the above can be lower case or capital case of first letter.
+    Return: Tuple of (Formal name, Abbr Name)
+    '''
+    env_name = env_name.lower()
+    if "round" in env_name:
+        return ROUNDABOUT, ABBR_SCENE_NAMES[ROUNDABOUT] 
+    elif "inter" in env_name:
+        return INTERSECTION, ABBR_SCENE_NAMES[INTERSECTION]
+    elif "parking" in env_name:
+        return PARKINGLOT, ABBR_SCENE_NAMES[PARKINGLOT]
+    elif "bottle" in env_name:
+        return BOTTLENECK, ABBR_SCENE_NAMES[BOTTLENECK]
+    elif "tollgate" in env_name:
+        return TOLLGATE, ABBR_SCENE_NAMES[TOLLGATE]
+    elif "multiagentmetadrive" in env_name:
+        raise ValueError()
+    else:
+        raise ValueError()
+
+def get_metadrive_ma_env_cls(scene_name: str, return_abbr=False):
+    '''Args:
+    scene_name: in any case:
+        1. full name: e.g. 'MultiAgentIntersectionEnv'
+        2. short name: e.g. 'Intersection'
+        3. abbr. name: e.g. 'Inter'
+        4. the above can be lower case or capital case of first letter.
+    '''
+    formal_name, abbr_name = parse_env_name(scene_name)
+    env_cls = SCENE_NAME_2_CLS[formal_name]
+    if return_abbr:
+        return env_cls, abbr_name
+    else:
+        return env_cls
 
 
 # for single-agent env

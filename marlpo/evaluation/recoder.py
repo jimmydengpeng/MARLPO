@@ -1,7 +1,7 @@
 import math
 import time
 from collections import defaultdict
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 
 import numpy as np
 from gymnasium import Wrapper
@@ -104,12 +104,32 @@ class RecorderEnv(Wrapper):
         self.user_data = defaultdict(lambda: defaultdict(dict))
         self.step_active_agents = {}
         self.episode_step = 0
-        self.distance_map = DistanceMap()
+        # self.distance_map = DistanceMap()
+
+    def get_nei_rewards(self, reward_dict: dict, infos: dict) -> Tuple[dict]:
+        own_r_ret = {}
+        nei_r_ret = {}
+        num_neighbours = {}
+        for k, own_r in reward_dict.items():
+            assert len(infos[k]['nei_rewards']) == len(infos[k]['neighbours'])
+            
+            other_rewards = infos[k]['nei_rewards']
+            if len(other_rewards) == 0:
+                # other_reward = own_r # TODO
+                other_reward = 0 # TODO
+            else:
+                other_reward = np.mean(other_rewards)
+
+            own_r_ret[k] = own_r
+            nei_r_ret[k] = other_reward
+            num_neighbours[k] = len(other_rewards)
+
+        return own_r_ret, nei_r_ret, num_neighbours
 
     def on_episode_step(self, o, r, tm, tc, i):
         if self.episode_step == 0:
             self.on_episode_start()
-            self.distance_map.clear()
+            # self.distance_map.clear()
 
         # Deal with SVO estimation
         distance = self.eval_config['neighbours_distance']  # TODO(Anonymous) not determined yet!
@@ -117,8 +137,9 @@ class RecorderEnv(Wrapper):
             vehicles = self.unwrapped.vehicles_including_just_terminated
         else:
             vehicles = self.unwrapped.vehicles  # Fallback to old version MetaDrive, but this is not accurate!
-        self.distance_map.update_distance_map(vehicles)
-        own_rewards, nei_rewards, num_neighbours = self.distance_map.get_rewards(r, distance=distance)
+        # self.distance_map.update_distance_map(vehicles)
+        # own_rewards, nei_rewards, num_neighbours = self.distance_map.get_rewards(r, distance=distance)
+        own_rewards, nei_rewards, num_neighbours = self.get_nei_rewards(r, i)
         for kkk in own_rewards.keys():
             self.user_data["own_reward"][self.episode_step][kkk] = own_rewards[kkk]
             self.user_data["num_neighbours"][self.episode_step][kkk] = num_neighbours[kkk]
@@ -371,63 +392,3 @@ class RecorderEnv(Wrapper):
         else:
             # raise NotImplementedError
             return self.unwrapped.render(text={k: "{:.3f}".format(v) for k, v in self.get_step_result().items()})
-
-
-if __name__ == '__main__':
-    num_others = 0
-    num_neighbours = 1
-    num_agents = 4
-    num_episodes = 10
-    env = RecorderEnv(
-        MultiAgentRoundaboutEnv(
-            {
-                "num_agents": num_agents,
-                "vehicle_config": {
-                    "lidar": {
-                        "num_others": num_others
-                    }
-                },
-                "horizon": 200,
-
-                # "use_render": True,
-                # "fast": True
-            }
-        )
-    )
-    print('1----', env)
-    o, info = env.reset()
-    d = {"__all__": False}
-    start = time.time()
-    for s in range(1, 100000000):
-        # action_to_send = env.action_space.sample()
-        # action_to_send = {v: [-1, 1] for v in env.unwrapped.vehicles}
-        action_to_send = {v: np.random.uniform(-1, 1, size=(2, )) for v in o}
-        o, r, tm, tc, info = env.step(action_to_send)
-        # env.render(mode="top_down")
-        step_stat = env.get_step_result()
-        step_stat = {k: "{:.3f}".format(v) for k, v in step_stat.items()}
-        env.render(            
-            text=step_stat,
-            current_track_vehicle=None,
-            mode="top_down", 
-            film_size=(1000, 1000),
-            screen_size=(1000, 1000),
-        )
-        # should_done = recorder.add(env, o, r, d, info)
-        # if should_done:
-        #     break
-        if tm["__all__"]:
-            o, info = env.reset()
-            tm = {"__all__": False}
-            break
-        if (s + 1) % 100 == 0:
-            print(
-                "Finish {}/10000 simulation steps. Time elapse: {:.4f}. Average FPS: {:.4f}".format(
-                    s + 1,
-                    time.time() - start, (s + 1) / (time.time() - start)
-                )
-            )
-    res = env.get_episode_result()
-    # env.close()
-    print('\n')
-    print(res)

@@ -3,7 +3,7 @@ from ray import tune
 
 import math
 
-from algo import IRATConfig, IRATTrainer
+from algo.algo_irat import IRATConfig, IRATTrainer
 from callbacks import MultiAgentDrivingCallbacks
 from env.env_wrappers import get_rllib_compatible_env, get_neighbour_env
 from env.env_utils import get_metadrive_ma_env_cls
@@ -27,10 +27,10 @@ SEEDS = [5000]
 
 # NUM_AGENTS = [30]
 NUM_AGENTS = 30
-NEI_DISTANCE = [40]
+NEI_DISTANCE = 40
 NUM_NEIGHBOURS = 4
 # EXP_DES = "v<idv:0->0.2, team:1->0.8>"
-EXP_DES = "BEST(0,1)(10,0)_4"
+EXP_DES = "BEST(0,1)(10,0)_6"
 # EXP_DES = "v1<kl_coeff><(0,0.5)(1, 0.5)>"
 
 if __name__ == "__main__":
@@ -68,11 +68,11 @@ if __name__ == "__main__":
         add_nei_state=False, 
         use_dict_obs=False,
         add_compact_state=False,
-        neighbours_distance=tune.grid_search(NEI_DISTANCE),
+        neighbours_distance=NEI_DISTANCE,
     )
 
     # ────────────── for test ────────────── # 
-    stop = {"timesteps_total": 1.3e6}            
+    stop = {"timesteps_total": 1.25e6}            
     if TEST : stop ={"training_iteration": 1}    
     # ────────────────────────────────────── # 
 
@@ -81,7 +81,7 @@ if __name__ == "__main__":
         IRATConfig()
         .framework('torch')
         .resources(
-            num_cpus_per_worker=0.125,
+            num_cpus_per_worker=0.25,
             **get_training_resources()
         )
         .rollouts(
@@ -111,7 +111,7 @@ if __name__ == "__main__":
                 fcnet_activation='tanh',
             ),
             # use_kl_loss=False, # for single ppo's kl(pi_old|pi_new)
-            entropy_coeff=tune.grid_search([0, 0.01]), # 不能加上最大化熵? # 默认为0 
+            entropy_coeff=0, # 不能加上最大化熵? # 默认为0 
             # grad_clip=40,
             # grad_clip_by='norm',
             vf_loss_coeff=1,
@@ -130,11 +130,11 @@ if __name__ == "__main__":
             # idv_kl_end_coeff=0.5,
             idx_kl_coeff_schedule=[
                 (0, 0), 
-                (1.3*NUM_AGENTS[0] * 1.5e6, tune.grid_search([0.5, 1, 1.5]))
+                (tune.grid_search([0.8*NUM_AGENTS[0]*1.25e6, 1*NUM_AGENTS[0]*1.25e6]), 1)
             ],
             team_kl_coeff_schedule=[
-                (0, tune.grid_search([2, 5, 10])), 
-                (1.3*NUM_AGENTS[0] * 1.5e6, 0)
+                (0, 10), 
+                (tune.grid_search([0.8*NUM_AGENTS[0]*1.25e6, 1*NUM_AGENTS[0]*1.25e6]), 0)
             ],
             # team_kl_coeff=0.2,
             # team_kl_end_coeff=0.5,
@@ -145,14 +145,14 @@ if __name__ == "__main__":
             svo_init_value='0', # in [ '0', 'pi/4', 'pi/2', 'random' ]
             svo_mode='full', #tune.grid_search(['full', 'restrict']),
             # nei_rewards_mode='mean_nei_rewards', #'attentive_one_nei_reward',
-            nei_rewards_mode=tune.grid_search(['mean']), #'attentive_one_nei_reward',
+            nei_rewards_mode='mean', #'attentive_one_nei_reward',
             nei_reward_if_no_nei='self',
-            nei_rewards_add_coeff=tune.grid_search([1, 1.5]),
-            norm_adv=tune.grid_search([True]),
+            nei_rewards_add_coeff=1,
+            norm_adv=True,
             # == Common ==
             huber_value_loss=True,
             # old_value_loss=True,
-            num_neighbours=tune.grid_search([NUM_NEIGHBOURS]), # the max num of neighbours in use
+            num_neighbours=NUM_NEIGHBOURS, # the max num of neighbours in use
             # == CC ==
             use_central_critic=False,
             counterfactual=False,

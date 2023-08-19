@@ -1,6 +1,6 @@
 from ray import tune
 
-from algo import IPPOConfig, IPPOTrainer
+from algo.algo_ippo import IPPOConfig, IPPOTrainer
 from env.env_wrappers import get_rllib_compatible_env, get_tracking_md_env
 from env.env_utils import get_metadrive_ma_env_cls
 from callbacks import MultiAgentDrivingCallbacks

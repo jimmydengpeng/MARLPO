@@ -69,7 +69,7 @@ if __name__ == "__main__":
     )
 
 # ╭──────────────── for test ─────────────────╮
-    stop = {"timesteps_total": 1.5e6}            
+    stop = {"timesteps_total": 1.2e6}            
     if TEST : stop ={"training_iteration": 5}    
 # ╰───────────────────────────────────────────╯
 
@@ -110,11 +110,11 @@ if __name__ == "__main__":
             team_clip_param=0.5, # TODO: tuning
             idv_kl_coeff_schedule=[
                 (0, 0), 
-                (1e6, 1.25)
+                (tune.grid_search([0.8*1e6, 0.9*1e6, 1*1e6]), 1.5)
             ],
             team_kl_coeff_schedule=[
                 (0, 10), 
-                (tune.grid_search([1.1*1e6, 1.13*1e6, 1.2*1e6]), 0)
+                (tune.grid_search([0.9*1e6, 1*1e6, 1.1*1e6]), 0)
             ],
             # == SVO ==
             use_svo=False, # whether to use svo-reward, if False, use original reward

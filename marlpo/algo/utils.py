@@ -1,11 +1,14 @@
 from typing import List, Tuple
 import logging
-import math
 import numpy as np
+
+from ray.rllib.evaluation.postprocessing import discount_cumsum
 from ray.rllib.policy.sample_batch import SampleBatch
+from ray.rllib.utils.framework import try_import_torch
 from utils.debug import get_logger
 
-# logger = logging.getLogger('ray.rllib')
+torch, nn = try_import_torch()
+
 logger = get_logger()
 
 ORIGINAL_REWARDS = "original_rewards"
@@ -124,3 +127,20 @@ def add_neighbour_rewards(
     sample_batch[NUM_NEIGHBOURS] = num_neighbours
 
     return sample_batch
+
+
+# Trick 8: orthogonal initialization
+def orthogonal_initializer(gain=1.0):
+    def orthogonal_init(weight):
+        nn.init.orthogonal_(weight, gain=gain)
+    return orthogonal_init
+
+
+def _compute_advantage(rollout: SampleBatch, rvat, last_r: float, gamma: float = 0.9, lambda_: float = 1.0):
+    REWARD, VALUE, ADVANTAGE, TARGET = rvat
+    vpred_t = np.concatenate([rollout[VALUE], np.array([last_r])])
+    delta_t = (rollout[REWARD] + gamma * vpred_t[1:] - vpred_t[:-1])
+    rollout[ADVANTAGE] = discount_cumsum(delta_t, gamma * lambda_)
+    rollout[TARGET] = (rollout[ADVANTAGE] + rollout[VALUE]).astype(np.float32)
+    rollout[ADVANTAGE] = rollout[ADVANTAGE].astype(np.float32)
+    return rollout

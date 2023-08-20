@@ -15,17 +15,18 @@ torch, _ = try_import_torch()
 
 WINDOWN_WIDTH_REDUCED = False
 
-def reduce_window_width(WINDOWN_WIDTH_REDUCED, in_file: str = None):
+def reduce_window_width(file_name: str = None):
     '''
     Args:
-        in_file: the file's name who called this function
+        file_name: the file's name who called this function
     '''
+    global WINDOWN_WIDTH_REDUCED
     if not WINDOWN_WIDTH_REDUCED:
-        in_file = in_file or __file__
+        file_name = file_name or __file__
         rich.get_console().width -= 30
-        in_file = in_file or __file__
+        file_name = file_name or __file__
         WINDOWN_WIDTH_REDUCED = True
-        print(f'[red]({in_file}) rich console -= 30[/]: [blue]{rich.get_console().width}[/]')
+        print(f'[red]({file_name}) rich console -= 30[/]: [blue]{rich.get_console().width}[/]')
 
 # reduce_window_width(WINDOWN_WIDTH_REDUCED)
 

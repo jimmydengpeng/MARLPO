@@ -16,6 +16,7 @@ def train(
     test_mode=False,
     suffix="",
     checkpoint_freq=10,
+    checkpoint_score_attribute='RewardMean',
     keep_checkpoints_num=None,
     start_seed=0, # for grid search worker seeds
     results_path='./exp_results',
@@ -37,8 +38,7 @@ def train(
         checkpoint_config = air.CheckpointConfig(
             num_to_keep=keep_checkpoints_num,
             checkpoint_frequency=checkpoint_freq,
-            # checkpoint_score_attribute="RewardMean", # see callbacks.py
-            checkpoint_score_attribute="SuccessRate", # see callbacks.py
+            checkpoint_score_attribute=checkpoint_score_attribute, # see callbacks.py
         )
     else:
         checkpoint_config = air.CheckpointConfig(checkpoint_at_end=True)
@@ -82,5 +82,7 @@ def train(
     )
 
 
-
     results = tuner.fit()
+
+    return results
+     

@@ -72,6 +72,7 @@ if __name__ == "__main__":
         IPPOConfig()
         .framework('torch')
         .resources(
+            num_cpus_per_worker=0.25,
             **get_training_resources()
         )
         .rollouts(
@@ -107,7 +108,8 @@ if __name__ == "__main__":
         config=ppo_config,
         stop=stop,
         exp_name=exp_name,
-        checkpoint_freq=10,
+        checkpoint_freq=5,
+        checkpoint_score_attribute='SuccessRate',
         keep_checkpoints_num=3,
         num_gpus=0,
         results_path='exp_IPPO',

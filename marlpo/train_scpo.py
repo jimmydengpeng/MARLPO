@@ -23,15 +23,14 @@ SCENE = "intersection" if not TEST else "intersection"
 
 # === Env Seeds ===
 # seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-# seeds = [5000, 6000, 7000]
+# SEEDS = [9000, 10000, 11000, 12000]
+# SEEDS = [5000, 6000, 7000, 8000]
 SEEDS = [5000]
 
-# NUM_AGENTS = [30]
 NUM_AGENTS = 30
 NEI_DISTANCE = 40
 NUM_NEIGHBOURS = 4
-EXP_DES = "BEST(0,1.25)(10,0)_1"
-# EXP_DES = "v1<kl_coeff><(0,0.5)(1, 0.5)>"
+EXP_DES = "TUNING_1.5M_3_4workers"
 
 if __name__ == "__main__":
     # === Get Args ===
@@ -69,7 +68,7 @@ if __name__ == "__main__":
     )
 
 # ╭──────────────── for test ─────────────────╮
-    stop = {"timesteps_total": 1.2e6}            
+    stop = {"timesteps_total": 1.5e6}            
     if TEST : stop ={"training_iteration": 5}    
 # ╰───────────────────────────────────────────╯
 
@@ -78,7 +77,7 @@ if __name__ == "__main__":
         SCPOConfig()
         .framework('torch')
         .resources(
-            num_cpus_per_worker=0.125,
+            num_cpus_per_worker=0.25,
             **get_training_resources()
         )
         .rollouts(
@@ -110,15 +109,15 @@ if __name__ == "__main__":
             team_clip_param=0.5, # TODO: tuning
             idv_kl_coeff_schedule=[
                 (0, 0), 
-                (tune.grid_search([0.8*1e6, 0.9*1e6, 1*1e6]), 1.5)
+                (1.5e6, tune.grid_search([1, 5, 10]))
             ],
             team_kl_coeff_schedule=[
-                (0, 10), 
-                (tune.grid_search([0.9*1e6, 1*1e6, 1.1*1e6]), 0)
+                (0, tune.grid_search([10])), 
+                (1.5e6, 0)
             ],
             # == SVO ==
-            use_svo=False, # whether to use svo-reward, if False, use original reward
-            fixed_svo=math.pi/4, # svo value if use_svo
+            use_svo=True, # whether to use svo-reward, if False, use original reward
+            fixed_svo=math.pi/7, # svo value if use_svo
             nei_rewards_mode='mean', 
             nei_reward_if_no_nei='self',
             nei_rewards_add_coeff=1, # when use_svo=False
@@ -135,18 +134,20 @@ if __name__ == "__main__":
         config=algo_config,
         stop=stop,
         exp_name=exp_name,
-        checkpoint_freq=3,
+        checkpoint_freq=5,
         checkpoint_score_attribute='SuccessRate',
-        keep_checkpoints_num=10,
+        keep_checkpoints_num=3,
         num_gpus=0,
         results_path='exp_SCPO',
         test_mode=TEST,
     )
 
     best_res = results.get_best_result(metric="SuccessRate", mode="max").config
+    ts = stop["timesteps_total"] 
     printPanel({
+        'total timestep': ts,
         'idv_kl_coeff_schedule': best_res['idv_kl_coeff_schedule'], 
-        'idv': f"{best_res['idv_kl_coeff_schedule'][-1][0]/1e6} • 1e6",
+        # 'idv': f"{best_res['idv_kl_coeff_schedule'][-1][0]/ts} • 1e6",
         'team_kl_coeff_schedule': best_res['team_kl_coeff_schedule'], 
-        'team': f"{best_res['team_kl_coeff_schedule'][-1][0]/1e6} • 1e6",
+        # 'team': f"{best_res['team_kl_coeff_schedule'][-1][0]/1e6} • 1e6",
     }, title='Best kl_coeff_schedule')

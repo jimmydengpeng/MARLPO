@@ -241,7 +241,7 @@ def get_algo_new():
 
     ippo_4wokers='exp_IPPO/IPPO_Inter_4agents_(4_workers)(no_norm_adv)/IPPOTrainer_Intersection_3bf41_00000_0_num_agents=30,start_seed=5000,num_others=0_2023-08-11_20-04-33/checkpoint_001172'
 
-    irat_temp='exp_IRAT/IRAT_Inter_30agents_BEST(0,1.25)(10,0)_7/IRATTrainer_Intersection_a52ad_00001_1_num_agents=30,start_seed=5000,0=38250000.0000_2023-08-19_17-34-50/checkpoint_001190'
+    irat_temp='exp_SCPO/SCPO_Inter_30agents_BEST(0,1)(10,0)_10/SCPOTrainer_Intersection_6044c_00001_1_num_agents=30,start_seed=5000,1=1.6000,1=10_2023-08-23_16-52-23/checkpoint_000996'
 
     
     

@@ -23,14 +23,14 @@ def get_other_training_configs(
     scene, 
     num_agents: Union[int, List[int]], 
     seeds: list,
-    test: bool,
+    test: bool = False,
 ):
     '''Args:
 
         Returns:
             num_agents: list
     '''
-    test = args.test if args.test else test
+    test = (args.test or test or False) # True if any or False if all False
     if test:
         exp_name = "TEST"
         num_rollout_workers = 0
@@ -54,9 +54,9 @@ def get_abbr_scene(name: str):
     scenes = {
         "roundabout":   "Round",
         "intersection": "Inter",
-        "tollgate":     "Tollg",
-        "bottleneck":   "Bottn",
-        "parkinglot":   "Parkl"
+        "tollgate":     "Tollgate",
+        "bottleneck":   "Bottle",
+        "parkinglot":   "Parking"
     }
     assert name in scenes
     return scenes[name]

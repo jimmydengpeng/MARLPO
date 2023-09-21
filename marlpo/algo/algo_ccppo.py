@@ -3,6 +3,7 @@ import gymnasium as gym
 from gymnasium.spaces import Box
 import numpy as np
 
+from ray.rllib.algorithms.algorithm_config import AlgorithmConfig
 from ray.rllib.algorithms.ppo.ppo_torch_policy import PPOTorchPolicy
 from ray.rllib.evaluation.postprocessing import Postprocessing
 from ray.rllib.evaluation.postprocessing import compute_advantages
@@ -20,9 +21,9 @@ from ray.rllib.utils.torch_utils import (
     sequence_mask,
     warn_if_infinite_kl_divergence,
 )
-from ray.rllib.utils.typing import ModelConfigDict, TensorType, TrainerConfigDict
+from ray.rllib.utils.typing import ModelConfigDict, TensorType
 
-from .algo_ippo import IPPOTrainer, IPPOConfig
+from algo.algo_ippo import IPPOTrainer, IPPOConfig
 
 torch, nn = try_import_torch()
 
@@ -486,7 +487,9 @@ class CCPPOTrainer(IPPOTrainer):
     def get_default_config(cls):
         return CCPPOConfig()
 
-    def get_default_policy_class(self, config: TrainerConfigDict) -> Type[Policy]:
+    def get_default_policy_class(self, config: AlgorithmConfig) -> Type[Policy]:
         assert config["framework"] == "torch"
         return CCPPOPolicy
 
+
+__all__ = ['CCPPOConfig', 'CCPPOTrainer']

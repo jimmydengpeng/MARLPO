@@ -1,94 +1,77 @@
-from metadrive.envs.marl_envs import MultiAgentRoundaboutEnv, MultiAgentIntersectionEnv
 from ray import tune
 
-from ray.rllib.algorithms.ppo import PPOConfig
-
-from metadrive import (
-    MultiAgentRoundaboutEnv, MultiAgentIntersectionEnv, MultiAgentTollgateEnv,
-    MultiAgentBottleneckEnv, MultiAgentParkingLotEnv
+from algo.algo_ccppo import CCPPOConfig, CCPPOTrainer
+from callbacks import MultiAgentDrivingCallbacks
+from env.env_wrappers import get_rllib_compatible_env, get_tracking_md_env
+from env.env_utils import get_metadrive_ma_env_cls
+from train import train
+from utils import (
+    get_train_parser, 
+    get_training_resources, 
+    get_other_training_configs,
 )
 
-# from copo.torch_copo.algo_ippo import IPPOTrainer
-# from copo.torch_copo.utils.callbacks import MultiAgentDrivingCallbacks
-from marlpo.algo.algo_ccppo import CCPPOConfig, CCPPOTrainer, get_ccppo_env
+''' Training Command Exmaple:
+python marlpo/train_ccppo.py --num_agents=30 --num_workers=4 --test
+'''
+ALGO_NAME = "CCPPO"
 
-from marlpo.train.train import train
-from marlpo.env.env_wrappers import get_rllib_compatible_gymnasium_api_env
-# from copo.torch_copo.utils.utils import get_train_parser
-from marlpo.callbacks import MultiAgentDrivingCallbacks
-from marlpo.utils.utils import get_training_resources, get_num_workers
+TEST = True # <~~ Default TEST mod here! Don't comment out this line!
+            # Also can be assigned in terminal command args by "--test"
+            # Will be True once anywhere (code/command) appears True!
+# TEST = False # <~~ Comment to use TEST mod here! Uncomment to use training mod!
 
+SCENE = "intersection" # <~~ Change env name here! will be automaticlly converted to env class
 
-# CCPPO_CONFIG = None
+# SEEDS = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+SEEDS = [5000]
 
+NUM_AGENTS = 40
 
-TEST = False # <~~ Toggle TEST mod here! 
-# TEST = True
+EXP_DES = ""
 
-# === Training Scene ===
-# SCENE = "roundabout"
-SCENE = "intersection"
-
-if TEST: SCENE = "roundabout" 
-
-# === Env Seeds ===
-# seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-seeds = [5000]
-EXP_SUFFIX = ""
 
 if __name__ == "__main__":
-    # === Environment ===
-    scenes = {
-        "roundabout": MultiAgentRoundaboutEnv,
-        "intersection": MultiAgentIntersectionEnv,
-        "tollgate": MultiAgentTollgateEnv,
-        "bottleneck": MultiAgentBottleneckEnv,
-        "parkinglot": MultiAgentParkingLotEnv,
-    }
-
-    ''' for Multi-Scene training at once! '''
-    # We can grid-search the environmental parameters!
-    # envs = tune.grid_search([
-    #     get_rllib_compatible_new_gymnasium_api_env(MultiAgentRoundaboutEnv),
-    #     get_rllib_compatible_new_gymnasium_api_env(MultiAgentIntersectionEnv),
-    #     get_rllib_compatible_new_gymnasium_api_env(MultiAgentTollgateEnv),
-    #     get_rllib_compatible_new_gymnasium_api_env(MultiAgentBottleneckEnv),
-    #     get_rllib_compatible_new_gymnasium_api_env(MultiAgentParkingLotEnv),
-    # ])
-
-    # ccppo
-    env = get_ccppo_env(scenes[SCENE])
-
-    # ===== Environmental Setting =====
-
-    num_agents = 40 #, 8, 16, 32, 40]
+    # == Get Args and Check all args & configs ==
+    args = get_train_parser().parse_args()
+    NUM_AGENTS, exp_name, num_rollout_workers, SEEDS, TEST = \
+                                    get_other_training_configs(
+                                        args=args,
+                                        algo_name=ALGO_NAME, 
+                                        exp_des=EXP_DES, 
+                                        scene=SCENE, 
+                                        num_agents=NUM_AGENTS,
+                                        seeds=SEEDS,
+                                        test=TEST) 
+    # === Get Environment ===
+    env_name, env_cls = get_rllib_compatible_env(
+                            get_tracking_md_env(
+                                get_metadrive_ma_env_cls(SCENE)
+                            ), return_class=True)
+    # === Environmental Configs ===
     env_config = dict(
-        num_agents=num_agents,
+        num_agents=NUM_AGENTS[0] if isinstance(NUM_AGENTS, list) else NUM_AGENTS,
         return_single_space=True,
-        start_seed=tune.grid_search(seeds)
-    )
- 
-    if TEST:
-        env_config["start_seed"] = 5000
-        stop = {"training_iteration": 1}
-        exp_name = "TEST"
-        num_rollout_workers = 1
-    else:
-        stop = {"timesteps_total": 1e6}
-        if len(seeds) == 1:
-            exp_name = f"CCPPO_{SCENE.capitalize()}_seed={seeds[0]}_{num_agents}agents"+EXP_SUFFIX
-        else:
-            exp_name = f"CCPPO_{SCENE.capitalize()}_{len(seeds)}seeds_{num_agents}agents"+EXP_SUFFIX
+        start_seed=tune.grid_search(SEEDS),
+        vehicle_config=dict(
+            lidar=dict(
+                num_lasers=72, 
+                distance=40, 
+                num_others=0,
+        )))
 
-        num_rollout_workers = get_num_workers()
-    
+# ╭──────────────── for test ─────────────────╮
+    stop = {"timesteps_total": 2e6}            
+    if TEST : stop ={"training_iteration": 5}    
+# ╰───────────────────────────────────────────╯
 
-    # === Algo Setting ===
+    # === Algo Configs ===
 
-    ppo_config = (
+    algo_config = (
         CCPPOConfig()
         .framework('torch')
         .resources(
+            num_cpus_per_worker=0.125,
             **get_training_resources()
         )
         .rollouts(
@@ -102,24 +85,18 @@ if __name__ == "__main__":
             sgd_minibatch_size=512,
             num_sgd_iter=5,
             lambda_=0.95,
-            # model=dict(
-            #     custom_model_config={
-                    
-            #     }
-            # ),
+            _enable_learner_api=False,
         )
-        # .multi_agent(
-        # )
-        # .evaluation(
-        #     evaluation_interval=2,
-        #     evaluation_duration=40,
-        #     evaluation_config=dict(env_config=dict(environment_num=200, start_seed=0)),
-        #     evaluation_num_workers=1,)
-        .environment(env=env, render_env=False, env_config=env_config, disable_env_checking=False)
+        .rl_module(_enable_rl_module_api=False)
+        .environment(
+            env=env_name,
+            render_env=False,
+            env_config=env_config,
+            disable_env_checking=True,
+        )
         .update_from_dict(dict(
             counterfactual=True,
             # fuse_mode="concat",
-            # fuse_mode=tune.grid_search(["concat"]),
             fuse_mode=tune.grid_search(["mf", "concat"]),
             mf_nei_distance=10,
         ))
@@ -128,11 +105,12 @@ if __name__ == "__main__":
     # === Launch training ===
     train(
         CCPPOTrainer,
-        config=ppo_config,
+        config=algo_config,
         stop=stop,
         exp_name=exp_name,
         checkpoint_freq=10,
         keep_checkpoints_num=3,
         num_gpus=0,
+        results_path='exp_'+ALGO_NAME,
         test_mode=TEST,
     )

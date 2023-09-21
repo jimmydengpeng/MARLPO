@@ -12,37 +12,45 @@ from utils import (
     get_other_training_configs,
 )
 
-
-TEST = False
-# TEST = True
-
+''' Training Command Exmaple:
+python marlpo/train_ippo.py --num_agents=30 --num_workers=4 --test
+'''
 ALGO_NAME = "IPPO"
-SCENE = "intersection" if not TEST else "intersection" 
 
-# SEEDS = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+TEST = True # <~~ Default TEST mod here! Don't comment out this line!
+            # Also can be assigned in terminal command args by "--test"
+            # Will be True once anywhere (code/command) appears True!
+# TEST = False # <~~ Comment to use TEST mod here! Uncomment to use training mod!
+
+SCENE = "tollgate" # <~~ Change env name here! will be automaticlly converted to env class
+
+SEEDS = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+SEEDS = [5000, 6000, 7000]
+SEEDS = [8000, 9000, 10000, 11000, 12000]
 SEEDS = [5000]
 
-NUM_AGENTS = [4]
+NUM_AGENTS = 40
 
-EXP_DES = "(4_workers)(no_norm_adv)"
+EXP_DES = ""
 INDEPENDT = False
 
 
 if __name__ == "__main__":
-    # === Get Args ===
+    # == Get Args ==
     args = get_train_parser().parse_args()
     MA_CONFIG = {} if not INDEPENDT else dict(
                 policies=set([f"agent{i}" for i in range(NUM_AGENTS)]),
                 policy_mapping_fn=(lambda agent_id, *args, **kwargs: agent_id))
-    # if TEST 
-    NUM_AGENTS, exp_name, num_rollout_workers, SEEDS, TEST = get_other_training_configs(
-                                                                args=args,
-                                                                algo_name=ALGO_NAME, 
-                                                                exp_des=EXP_DES, 
-                                                                scene=SCENE, 
-                                                                num_agents=NUM_AGENTS,
-                                                                seeds=SEEDS,
-                                                                test=TEST) 
+    # Check for all args & configs!
+    NUM_AGENTS, exp_name, num_rollout_workers, SEEDS, TEST = \
+                                    get_other_training_configs(
+                                        args=args,
+                                        algo_name=ALGO_NAME, 
+                                        exp_des=EXP_DES, 
+                                        scene=SCENE, 
+                                        num_agents=NUM_AGENTS,
+                                        seeds=SEEDS,
+                                        test=TEST) 
     # === Get Environment ===
     env_name, env_cls = get_rllib_compatible_env(
                             get_tracking_md_env(
@@ -51,7 +59,7 @@ if __name__ == "__main__":
 
     # === Environmental Configs ===
     env_config = dict(
-        num_agents=tune.grid_search(NUM_AGENTS),
+        num_agents=NUM_AGENTS[0] if isinstance(NUM_AGENTS, list) else NUM_AGENTS,
         allow_respawn=(not INDEPENDT),
         return_single_space=True,
         start_seed=tune.grid_search(SEEDS),
@@ -59,20 +67,21 @@ if __name__ == "__main__":
             lidar=dict(
                 num_lasers=72, 
                 distance=40, 
-                num_others=tune.grid_search([0]),
+                num_others=0,
         )))
 
-    # ────────────── for test ────────────── # 
-    stop = {"timesteps_total": 1.2e6}            
+# ╭──────────────── for test ─────────────────╮
+    stop = {"timesteps_total": 2e6}            
     if TEST : stop ={"training_iteration": 5}    
-    # ────────────────────────────────────── # 
+# ╰───────────────────────────────────────────╯
+
 
     # === Algo Setting ===
     ppo_config = (
         IPPOConfig()
         .framework('torch')
         .resources(
-            num_cpus_per_worker=0.25,
+            num_cpus_per_worker=0.125,
             **get_training_resources()
         )
         .rollouts(
@@ -108,10 +117,9 @@ if __name__ == "__main__":
         config=ppo_config,
         stop=stop,
         exp_name=exp_name,
-        checkpoint_freq=5,
-        checkpoint_score_attribute='SuccessRate',
+        checkpoint_freq=3,
         keep_checkpoints_num=3,
         num_gpus=0,
-        results_path='exp_IPPO',
+        results_path='exp_'+ALGO_NAME,
         test_mode=TEST,
     )

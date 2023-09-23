@@ -19,16 +19,16 @@ ALGO_NAME = "CCPPO"
 TEST = True # <~~ Default TEST mod here! Don't comment out this line!
             # Also can be assigned in terminal command args by "--test"
             # Will be True once anywhere (code/command) appears True!
-# TEST = False # <~~ Comment to use TEST mod here! Uncomment to use training mod!
+TEST = False # <~~ Comment to use TEST mod here! Uncomment to use training mod!
 
 SCENE = "intersection" # <~~ Change env name here! will be automaticlly converted to env class
 
-# SEEDS = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-SEEDS = [5000]
+SEEDS = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+# SEEDS = [5000]
 
-NUM_AGENTS = 40
+NUM_AGENTS = 30
 
-EXP_DES = ""
+EXP_DES = "concat"
 
 
 if __name__ == "__main__":
@@ -61,7 +61,7 @@ if __name__ == "__main__":
         )))
 
 # ╭──────────────── for test ─────────────────╮
-    stop = {"timesteps_total": 2e6}            
+    stop = {"timesteps_total": 1.6e6}            
     if TEST : stop ={"training_iteration": 5}    
 # ╰───────────────────────────────────────────╯
 
@@ -71,7 +71,7 @@ if __name__ == "__main__":
         CCPPOConfig()
         .framework('torch')
         .resources(
-            num_cpus_per_worker=0.125,
+            num_cpus_per_worker=0.25,
             **get_training_resources()
         )
         .rollouts(
@@ -96,8 +96,8 @@ if __name__ == "__main__":
         )
         .update_from_dict(dict(
             counterfactual=True,
-            # fuse_mode="concat",
-            fuse_mode=tune.grid_search(["mf", "concat"]),
+            fuse_mode="concat",
+            # fuse_mode=tune.grid_search(["mf", "concat"]),
             mf_nei_distance=10,
         ))
     )

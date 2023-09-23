@@ -1,10 +1,10 @@
 from ray import tune
 
-from algo.algo_ippo import IPPOConfig, IPPOTrainer
+from algo.algo_copo import CoPOConfig, CoPOTrainer
+from callbacks import MultiAgentDrivingCallbacks
+from env.env_copo import get_lcf_env
 from env.env_wrappers import get_rllib_compatible_env, get_tracking_md_env
 from env.env_utils import get_metadrive_ma_env_cls
-from callbacks import MultiAgentDrivingCallbacks
-
 from train import train
 from utils import (
     get_train_parser, 
@@ -13,9 +13,9 @@ from utils import (
 )
 
 ''' Training Command Exmaple:
-python marlpo/train_ippo.py --num_agents=30 --num_workers=4 --test
+python marlpo/train_ccppo.py --num_agents=30 --num_workers=4 --test
 '''
-ALGO_NAME = "IPPO"
+ALGO_NAME = "CoPO"
 
 TEST = True # <~~ Default TEST mod here! Don't comment out this line!
             # Also can be assigned in terminal command args by "--test"
@@ -25,23 +25,16 @@ TEST = True # <~~ Default TEST mod here! Don't comment out this line!
 SCENE = "intersection" # <~~ Change env name here! will be automaticlly converted to env class
 
 SEEDS = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-SEEDS = [5000, 6000, 7000]
-SEEDS = [8000, 9000, 10000, 11000, 12000]
-SEEDS = [5000]
+# SEEDS = [5000]
 
-NUM_AGENTS = 30
+NUM_AGENTS = 40
 
-EXP_DES = ""
-INDEPENDT = False
+EXP_DES = "concat"
 
 
 if __name__ == "__main__":
-    # == Get Args ==
+    # == Get Args and Check all args & configs ==
     args = get_train_parser().parse_args()
-    MA_CONFIG = {} if not INDEPENDT else dict(
-                policies=set([f"agent{i}" for i in range(NUM_AGENTS)]),
-                policy_mapping_fn=(lambda agent_id, *args, **kwargs: agent_id))
-    # Check for all args & configs!
     NUM_AGENTS, exp_name, num_rollout_workers, SEEDS, TEST = \
                                     get_other_training_configs(
                                         args=args,
@@ -53,14 +46,12 @@ if __name__ == "__main__":
                                         test=TEST) 
     # === Get Environment ===
     env_name, env_cls = get_rllib_compatible_env(
-                            get_tracking_md_env(
-                                get_metadrive_ma_env_cls(SCENE)
-                            ), return_class=True)
-
+                        # get_tracking_md_env(
+                        get_lcf_env(
+                        get_metadrive_ma_env_cls(SCENE)), return_class=True)
     # === Environmental Configs ===
     env_config = dict(
         num_agents=NUM_AGENTS[0] if isinstance(NUM_AGENTS, list) else NUM_AGENTS,
-        allow_respawn=(not INDEPENDT),
         return_single_space=True,
         start_seed=tune.grid_search(SEEDS),
         vehicle_config=dict(
@@ -75,10 +66,10 @@ if __name__ == "__main__":
     if TEST : stop ={"training_iteration": 5}    
 # ╰───────────────────────────────────────────╯
 
+    # === Algo Configs ===
 
-    # === Algo Setting ===
-    ppo_config = (
-        IPPOConfig()
+    algo_config = (
+        CoPOConfig()
         .framework('torch')
         .resources(
             num_cpus_per_worker=0.125,
@@ -98,7 +89,6 @@ if __name__ == "__main__":
             _enable_learner_api=False,
         )
         .rl_module(_enable_rl_module_api=False)
-        .multi_agent(**MA_CONFIG)
         .environment(
             env=env_name,
             render_env=False,
@@ -106,18 +96,20 @@ if __name__ == "__main__":
             disable_env_checking=True,
         )
         .update_from_dict(dict(
-            norm_adv=False,
+            counterfactual=True,
+            fuse_mode="concat",
+            # fuse_mode=tune.grid_search(["mf", "concat"]),
+            mf_nei_distance=10,
         ))
     )
 
     # === Launch training ===
-    # 使用CoPO修改过的PPO算法(IPPO)
     train(
-        IPPOTrainer,
-        config=ppo_config,
+        CoPOTrainer,
+        config=algo_config,
         stop=stop,
         exp_name=exp_name,
-        checkpoint_freq=3,
+        checkpoint_freq=10,
         keep_checkpoints_num=3,
         num_gpus=0,
         results_path='exp_'+ALGO_NAME,

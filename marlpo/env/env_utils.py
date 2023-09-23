@@ -46,7 +46,7 @@ def parse_env_name(env_name: str) -> Tuple[str]:
             2. short name: e.g. 'Intersection'
             3. abbr. name: e.g. 'Inter'
             4. the above can be lower case or capital case of first letter.
-    Return: Tuple of (Formal name, Abbr Name)
+    Return: Tuple of (Formal(internal) name, Abbr Name)
     '''
     env_name = env_name.lower()
     if "round" in env_name:

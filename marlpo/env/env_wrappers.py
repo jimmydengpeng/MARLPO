@@ -124,7 +124,7 @@ class TrackingEnv_OLD:
 
 
 def get_rllib_compatible_gymnasium_api_env(env_class, return_class=False):
-    """
+    """For old version of MetaDrive with old gym API (o,r,d,i = step())
     Args:
         env_class: A MetaDrive env class
     """
@@ -197,13 +197,6 @@ def get_rllib_compatible_gymnasium_api_env(env_class, return_class=False):
     return env_name
     
 
-def get_ccppo_env(env_class, return_class=False):
-    return get_rllib_compatible_gymnasium_api_env(get_ccenv(env_class), return_class=return_class)
-
-
-def get_rllib_cc_env(env_class, return_class=False):
-    return get_rllib_compatible_gymnasium_api_env(get_ccenv(env_class), return_class=return_class)
-
 
 def count_neighbours(infos):
     epi_neighbours_list = defaultdict(list)
@@ -218,7 +211,7 @@ class TrackingEnv:
     """Add a MetaDrive env some new functions, e.g., tracking 
         each agent's distance so far every step.
 
-       This class will be a subclass of a MetaDrive class.
+       This class should be a subclass of a MetaDrive class.
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -237,10 +230,10 @@ class TrackingEnv:
         return obs, infos
 
     def step(self, actions):
-        obs, r, tm, tr, infos = super().step(actions)
+        obs, r, tm, tc, infos = super().step(actions)
         # self._update_distance_dict(obs.keys())
         self.add_distance_into_infos(infos)
-        return obs, r, tm, tr, infos
+        return obs, r, tm, tc, infos
     
     def _update_distance_dict(self, agents):
         if hasattr(self, "vehicles_including_just_terminated"):
@@ -298,7 +291,6 @@ def get_tracking_md_env(env_class):
     TMP.__name__ = name
     TMP.__qualname__ = name
     return TMP
-
 
 
 class NeighbourEnv(TrackingEnv):
@@ -400,14 +392,12 @@ class NeighbourEnv(TrackingEnv):
 
 
 def get_neighbour_env(env_class):
-    """Augment a MetaDrive env with new functions,
-        i.e., providing neighbours in the info dict for each agent. 
-    
+    """Augment a MetaDrive env with new features,
+        i.e., providing neighbors' info in the info dict for each agent. 
     Args:
         env_class: A MetaDrive env class.
-
     Returns:
-        A augmented MetaDrive env class. 
+        An augmented MetaDrive env class. 
     """
     name = env_class.__name__
 
@@ -420,19 +410,21 @@ def get_neighbour_env(env_class):
 
 
 
-
 def get_rllib_compatible_env(env_class, return_class=False):
-    """Make a MetaDrive env a subclass of RLlib's MuiltiAgentEnv
-        & modify some annoying stuff in the new version of metadrive.
-    
+    """to get a env compatible with **RLlib** and make some general modifications in **MetaDriveEnv**, e.g., turn off some burdensome or annoying logging configs:
+    (1) make a MetaDrive env a subclass of RLlib's MuiltiAgentEnv, 
+    (2) modify some annoying stuff in the latest version of MetaDrive,
+    (3) register it to RLlib.
+
     Args:
-        env_class: A MetaDrive env class
+        env_class: A MetaDrive env class, could be augmented (i.e., a subclass 
+        of the original MetaDrive class.)
     """
     env_name = env_class.__name__ # e.g. 'MultiAgentIntersectionEnv'
     if env_name.startswith('MultiAgent'):
-        env_name = env_name[len('MultiAgent'): -3]
+        env_name = env_name[len('MultiAgent'): -3] # e.g. "Intersection"
 
-    class MAEnv(env_class, MultiAgentEnv):        
+    class MAEnv(env_class, MultiAgentEnv): 
         # == rllib MultiAgentEnv requries: ==
         # _agent_ids = ["agent{}".format(i) for i in range(100)] + ["{}".format(i) for i in range(10000)] + ["sdc"]
 

@@ -6,7 +6,7 @@ from env.env_utils import get_metadrive_ma_env_cls
 from callbacks import MultiAgentDrivingCallbacks
 
 from train import train
-from utils import (
+from utils.utils import (
     get_train_parser, 
     get_training_resources, 
     get_other_training_configs,
@@ -41,8 +41,9 @@ if __name__ == "__main__":
     MA_CONFIG = {} if not INDEPENDT else dict(
                 policies=set([f"agent{i}" for i in range(NUM_AGENTS)]),
                 policy_mapping_fn=(lambda agent_id, *args, **kwargs: agent_id))
+
     # Check for all args & configs!
-    NUM_AGENTS, exp_name, num_rollout_workers, SEEDS, TEST = \
+    num_agents, exp_name, num_rollout_workers, seeds, TEST = \
                                     get_other_training_configs(
                                         args=args,
                                         algo_name=ALGO_NAME, 
@@ -59,16 +60,17 @@ if __name__ == "__main__":
 
     # === Environmental Configs ===
     env_config = dict(
-        num_agents=NUM_AGENTS[0] if isinstance(NUM_AGENTS, list) else NUM_AGENTS,
         allow_respawn=(not INDEPENDT),
         return_single_space=True,
-        start_seed=tune.grid_search(SEEDS),
+        start_seed=tune.grid_search(seeds),
         vehicle_config=dict(
             lidar=dict(
                 num_lasers=72, 
                 distance=40, 
                 num_others=0,
-        )))
+    )))
+    env_config.update({'num_agents': tune.grid_search(num_agents) 
+                       if len(num_agents) > 1 else num_agents[0]})
 
 # ╭──────────────── for test ─────────────────╮
     stop = {"timesteps_total": 2e6}            

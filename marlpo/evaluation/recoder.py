@@ -110,19 +110,24 @@ class RecorderEnv(Wrapper):
         own_r_ret = {}
         nei_r_ret = {}
         num_neighbours = {}
-        for k, own_r in reward_dict.items():
-            assert len(infos[k]['nei_rewards']) == len(infos[k]['neighbours'])
             
-            other_rewards = infos[k]['nei_rewards']
-            if len(other_rewards) == 0:
-                # other_reward = own_r # TODO
-                other_reward = 0 # TODO
+
+        for k, own_r in reward_dict.items():
+            if isinstance(infos[k]['nei_rewards'], float):
+                other_reward = infos[k]['nei_rewards']
             else:
-                other_reward = np.mean(other_rewards)
+                assert len(infos[k]['nei_rewards']) == len(infos[k]['neighbours'])
+            
+                other_rewards = infos[k]['nei_rewards']
+                if len(other_rewards) == 0:
+                # other_reward = own_r # TODO
+                    other_reward = 0 # TODO
+                else:
+                    other_reward = np.mean(other_rewards)
 
             own_r_ret[k] = own_r
             nei_r_ret[k] = other_reward
-            num_neighbours[k] = len(other_rewards)
+            num_neighbours[k] = len(infos[k]['neighbours'])
 
         return own_r_ret, nei_r_ret, num_neighbours
 

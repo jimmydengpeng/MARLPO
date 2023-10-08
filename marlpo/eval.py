@@ -1,13 +1,13 @@
 """ This a formal evaluation script for all algos.
 Usage:
-Just specify the abs. or rel. path to an 'algo' or 'experiment folder' 
+Just specify the abs. or rel. path to an 'algo/experiment folder'
 folder, e.g. ippo.
 
 Note:
-1. The 'algo' or 'experiment folder' contains one or more 'trial folders',
-    which is usually of different seeds;
+1. The 'algo/experiment folder' contains one or more 'trial folders',
+which is usually of different seeds;
 2. Each 'trial folder' contains many 'checkpoint folders',
-    in which the 'params.json' and 'progress.csv' exists.
+which contains the 'params.json' and 'progress.csv'.
 
 Example:
 evaluation
@@ -17,9 +17,12 @@ evaluation
 │   │    ├─ params.json
 │   │    └─ progress.csv
 │   └─ trial_1_seed=6000
+│        └─ ...
 └── copo/
     ├─ trial_0_seed=5000/
+    │    └─ ...
     └─ trial_1_seed=6000/
+         └─ ...
 """
 
 import os
@@ -30,7 +33,6 @@ import argparse
 import json
 import numpy as np
 import pandas as pd
-
 from rich.panel import Panel
 from rich.progress import Progress
 import logging
@@ -40,6 +42,7 @@ logger.setLevel(logging.ERROR)
 
 from ray.rllib.algorithms import Algorithm
 
+from env.env_copo import get_lcf_env, get_lcf_from_checkpoint
 from env.env_wrappers import get_rllib_compatible_env, get_neighbour_env
 from env.env_utils import get_metadrive_ma_env_cls
 from evaluation.recoder import RecorderEnv
@@ -56,6 +59,31 @@ def get_eval_env(env_name: str, env_config={}):
                             get_neighbour_env(env_cls),
                         return_class=True)
     env = env_cls(env_config)
+    return RecorderEnv(env), abbr_name
+
+def get_eval_env_new(
+    env_name: str, 
+    env_config={}, 
+    should_wrap_copo_env=False, 
+    lcf_mean=0.0, 
+    lcf_std=0.0
+):
+    '''Args:
+    env_name: may be 'MultiAgentIntersectionEnv' 
+        or abbreviation, e.g., 'Intersection' 
+    '''
+    env_cls, abbr_name = get_metadrive_ma_env_cls(env_name, return_abbr=True) 
+    # special case for copo
+    if should_wrap_copo_env:
+        env_cls = get_lcf_env(env_cls)
+    else:
+        env_cls = get_neighbour_env(env_cls)
+    env_name, env_cls = get_rllib_compatible_env(env_cls, return_class=True)
+    env = env_cls(env_config)
+
+    if should_wrap_copo_env:
+        env.set_lcf_dist(lcf_mean, lcf_std)
+
     return RecorderEnv(env), abbr_name
 
 
@@ -88,6 +116,7 @@ def compute_actions(algo: Algorithm, obs, extra_actions=False):
         actions = algo.compute_actions(observations=obs)
         return actions
 
+
 def get_brief_epi_res(res, print_out=False):
     res_to_print = {}
     keys_rate = ['success_rate', 'crash_rate', 'out_rate']
@@ -110,6 +139,7 @@ def get_brief_epi_res(res, print_out=False):
     if print_out:
         printPanel(res_to_print, title=f"Episode {ep_count}/{num_episodes} • Algo {res['algo'].upper()}")
     return res_to_print
+
 
 def get_parser():
     parser = argparse.ArgumentParser()
@@ -136,7 +166,7 @@ def get_checkpoint_infos(root):
 
         raw_env_name, start_seed, ckpt_params = get_env_and_start_seed(trial_path)
 
-        should_wrap_cc_env = "CCPPO" in trial_name
+        should_wrap_cc_env = "CCPPO" in trial_name # no need!
         should_wrap_copo_env = "CoPO" in trial_name
 
         # Get checkpoint path
@@ -182,6 +212,10 @@ def get_checkpoint_infos(root):
 if __name__ == '__main__':
     parser = get_parser()
     args = parser.parse_args()
+
+    # args.root = 'exp_SCPO/AIBOY/SCPOTrainer_Intersection_87c48_00008_8_num_agents=30,start_seed=5000,1=3,1=10_2023-08-28_18-49-15'
+    args.root = 'exp_CoPO/CoPO_Inter_30agents_0/CoPOTrainer_Intersection_e05af_00000_0_start_seed=5000_2023-09-24_01-01-45/checkpoint_001030'
+    # args.root = 'marlpo/evaluation/demo_raw_checkpoints/ippo'
     
     with Progress(transient=False) as progress:
         progress.console.log("Evaluation begins. The results will be saved at: ", "./evaluate_results/\n")

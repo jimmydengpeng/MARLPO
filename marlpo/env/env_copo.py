@@ -647,6 +647,32 @@ def get_rllib_compatible_env(env_class, return_class=False):
     return env_name
 
 
+
+# for eval
+def get_lcf_from_checkpoint(ckp_path):
+    import os.path as osp
+    from pathlib import Path
+    import pandas as pd
+
+    trial_path = Path(osp.abspath(ckp_path)).parent
+    file = osp.join(trial_path, "progress.csv")
+    assert osp.isfile(file), f"We expect to use progress.csv to extract LCF! The folder should be: {trial_path}"
+    df = pd.read_csv(file)
+
+    lcf_mean_col_name = 'info/learner/default_policy/custom_metrics/meta_update/lcf'
+    lcf_std_col_name = 'info/learner/default_policy/custom_metrics/meta_update/lcf_std'
+    lcf_mean = df.loc[df.index[-1], lcf_mean_col_name]
+    if lcf_std_col_name in df:
+        lcf_std = df.loc[df.index[-1], lcf_std_col_name]
+    else:
+        lcf_std = 0.0
+    return lcf_mean, lcf_std
+
+
+
+
+
+
 if __name__ == '__main__':
     # Test if the distance map is correctly updated.
     from metadrive.envs.marl_envs import MultiAgentIntersectionEnv

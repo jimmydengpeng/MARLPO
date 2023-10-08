@@ -1,6 +1,6 @@
 import argparse, sys
 from typing import List, Union
-
+from env.env_utils import get_abbr_scene, get_env_default_num_agents
 
 def get_train_parser():
     parser = argparse.ArgumentParser()
@@ -21,14 +21,17 @@ def get_other_training_configs(
     algo_name, 
     exp_des, 
     scene, 
-    num_agents: Union[int, List[int]], 
-    seeds: list,
+    num_agents: Union[int, List[int]] = None, 
+    seeds: list = [5000],
     test: bool = False,
 ):
-    '''Args:
+    '''
+    Args:
+        num_agents: 用于生成实验名, 返回一个list
+        seeds: 可能会变
 
-        Returns:
-            num_agents: list
+    Returns:
+        num_agents: list
     '''
     test = (args.test or test or False) # True if any or False if all False
     if test:
@@ -37,7 +40,9 @@ def get_other_training_configs(
         seeds = [5000]
         num_agents = [2]
     else:
-        exp_name = get_exp_name(algo_name, exp_des, scene, num_agents)
+        if num_agents is None:
+            num_agents = get_env_default_num_agents(scene)
+        exp_name = get_exp_name(algo_name, exp_des, scene, num_agents, num_rollout_workers)
         if not isinstance(num_agents, list) and isinstance(num_agents, int):
             num_agents = [num_agents]
         num_rollout_workers = get_num_workers()
@@ -48,18 +53,6 @@ def get_other_training_configs(
         num_agents = [args.num_agents] 
 
     return num_agents, exp_name, num_rollout_workers, seeds, test
-
-
-def get_abbr_scene(name: str):
-    scenes = {
-        "roundabout":   "Round",
-        "intersection": "Inter",
-        "tollgate":     "Tollgate",
-        "bottleneck":   "Bottle",
-        "parkinglot":   "Parking"
-    }
-    assert name in scenes
-    return scenes[name]
 
 
 def get_num_agents_str(num_agents):
@@ -73,9 +66,9 @@ def get_num_agents_str(num_agents):
         return '-'.join(l)
 
 
-def get_exp_name(algo_name, exp_des, scene, num_agents):
+def get_exp_name(algo_name, exp_des, scene, num_agents, num_workers):
     EXP_SUFFIX = ('_' if exp_des else '') + exp_des
-    return algo_name + f"_{get_abbr_scene(scene)}_{get_num_agents_str(num_agents)}agents" + EXP_SUFFIX
+    return algo_name + f"_{get_abbr_scene(scene)}_{get_num_agents_str(num_agents)}agents_{num_workers}workers" + EXP_SUFFIX
 
 
 def get_num_workers():

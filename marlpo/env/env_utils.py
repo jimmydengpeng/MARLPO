@@ -16,13 +16,14 @@ from metadrive.component.vehicle.base_vehicle import BaseVehicle
 
 from utils.debug import colorize
 
+# define internal constants for env scenes
 ROUNDABOUT = "roundabout"
 INTERSECTION = "intersection"
 TOLLGATE = "tollgate"
 BOTTLENECK = "bottleneck"
 PARKINGLOT = "parkinglot"
 
-SCENE_NAME_2_CLS = {
+SCENE_CLASSES = {
     ROUNDABOUT: MultiAgentRoundaboutEnv,
     INTERSECTION: MultiAgentIntersectionEnv,
     TOLLGATE: MultiAgentTollgateEnv,
@@ -31,12 +32,13 @@ SCENE_NAME_2_CLS = {
 }
 
 ABBR_SCENE_NAMES = {
-    ROUNDABOUT: 'Round',
+    ROUNDABOUT:   'Round',
     INTERSECTION: 'Inter',
-    TOLLGATE: 'Tollgate',
-    BOTTLENECK: 'Bottle',
-    PARKINGLOT: 'Parking',
+    TOLLGATE:     'Tollgate',
+    BOTTLENECK:   'Bottle',
+    PARKINGLOT:   'Parking',
 }
+
 
 def parse_env_name(env_name: str) -> Tuple[str]:
     ''' 解析任意形式的环境名称，返回一个内部使用全局变量名称和简写
@@ -49,20 +51,20 @@ def parse_env_name(env_name: str) -> Tuple[str]:
     Return: Tuple of (Formal(internal) name, Abbr Name)
     '''
     env_name = env_name.lower()
-    if "round" in env_name:
-        return ROUNDABOUT, ABBR_SCENE_NAMES[ROUNDABOUT] 
-    elif "inter" in env_name:
-        return INTERSECTION, ABBR_SCENE_NAMES[INTERSECTION]
-    elif "parking" in env_name:
-        return PARKINGLOT, ABBR_SCENE_NAMES[PARKINGLOT]
-    elif "bottle" in env_name:
-        return BOTTLENECK, ABBR_SCENE_NAMES[BOTTLENECK]
-    elif "tollgate" in env_name:
-        return TOLLGATE, ABBR_SCENE_NAMES[TOLLGATE]
-    elif "multiagentmetadrive" in env_name:
-        raise ValueError()
-    else:
-        raise ValueError()
+    name = None
+    if "round" in env_name:      name = ROUNDABOUT
+    elif "inter" in env_name:    name = INTERSECTION
+    elif "park" in env_name:  name = PARKINGLOT
+    elif "bot" in env_name:   name = BOTTLENECK
+    elif "toll" in env_name: name = TOLLGATE
+    else: raise ValueError()
+    return name, ABBR_SCENE_NAMES[name] 
+
+
+def get_abbr_scene(name: str):
+    name, abbr_name = parse_env_name(name)
+    return abbr_name
+
 
 def get_metadrive_ma_env_cls(scene_name: str, return_abbr=False):
     '''Args:
@@ -73,12 +75,19 @@ def get_metadrive_ma_env_cls(scene_name: str, return_abbr=False):
         4. the above can be lower case or capital case of first letter.
     '''
     formal_name, abbr_name = parse_env_name(scene_name)
-    env_cls = SCENE_NAME_2_CLS[formal_name]
+    env_cls = SCENE_CLASSES[formal_name]
     if return_abbr:
         return env_cls, abbr_name
     else:
         return env_cls
 
+
+def get_env_default_num_agents(env_name: str) -> int:
+    env_cls = get_metadrive_ma_env_cls(env_name)
+    return env_cls.default_config()['num_agents']
+
+
+# -------------- Not In Use! ------------------
 
 # for single-agent env
 def metadrive_to_terminated_truncated_step_api(step_returns):

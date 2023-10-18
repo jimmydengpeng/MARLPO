@@ -1,5 +1,6 @@
 from collections import defaultdict
-from typing import Dict
+import pickle
+from typing import Dict, Tuple
 
 import numpy as np
 
@@ -140,12 +141,13 @@ class MetricCallbacks():
             epi_len_list.append(info.get("episode_length", 0))
 
         # === 计算 成功率、撞车、出界率、最大步数率 ===
-        metrics["success_rate"] = np.mean(arrive_dest_list)
-        metrics["num_success"] = np.count_nonzero(arrive_dest_list)
+        metrics["success_rate"] = np.mean(arrive_dest_list).round(4)
         metrics["total_agents"] = len(arrive_dest_list)
-        metrics["crash_rate"] = np.mean(crash_list)
-        metrics["out_of_road_rate"] = np.mean(out_of_road_list)
-        metrics["max_step_rate"] = np.mean(max_step_list)
+        metrics["num_success"] = np.count_nonzero(arrive_dest_list)
+        metrics["num_crash"] = np.count_nonzero(crash_list)
+        metrics["crash_rate"] = np.mean(crash_list).round(4)
+        metrics["out_of_road_rate"] = np.mean(out_of_road_list).round(4)
+        metrics["max_step_rate"] = np.mean(max_step_list).round(4)
 
         # === 计算 平均奖励、平均长度 ===
         metrics["epsode_reward_mean"] = np.mean(epi_rew_list)
@@ -161,7 +163,7 @@ def print_final_summary(rate_lists):
     # epi_succ_rate_list, epi_crash_rate_list, epi_out_rate_list, epi_max_step_rate_list
     rates = []
     for rate_list in rate_lists:
-        rates.append(np.mean(rate_list).round(2))
+        rates.append(np.mean(rate_list).round(4))
 
     # res = []
     prefix_strs = ('succ_rate', 'crash_rate', 'out_rate', 'maxstep_rate')
@@ -241,10 +243,13 @@ def get_algo_new():
 
     ippo_4wokers='exp_IPPO/IPPO_Inter_4agents_(4_workers)(no_norm_adv)/IPPOTrainer_Intersection_3bf41_00000_0_num_agents=30,start_seed=5000,num_others=0_2023-08-11_20-04-33/checkpoint_001172'
 
+    ippo_8workers='exp_IPPO/IPPO_Inter_30agents_(8_workers)(no_norm_adv)_2/IPPOTrainer_Intersection_fd8df_00004_4_num_agents=30,start_seed=9000,num_others=0_2023-09-09_21-58-44/checkpoint_001773'
+
     irat_temp='exp_SCPO/SCPO_Inter_30agents_BEST(0,1)(10,0)_10/SCPOTrainer_Intersection_6044c_00001_1_num_agents=30,start_seed=5000,1=1.6000,1=10_2023-08-23_16-52-23/checkpoint_000996'
 
+    scpo='exp_SCPO/SCPO_Inter_30agents_TUNING_1.5M_6/SCPOTrainer_Intersection_46c5c_00000_0_num_agents=30,start_seed=5000,1=1,1=6,1=0.5000,use_svo=False_2023-09-02_02-06-30/checkpoint_001050'
     
-    
+    scpo_test='exp_SCPO/SCPO_Inter_30agents_TUNING_2M_(fast_convergence)_1/SCPOTrainer_Intersection_f2c09_00000_0_num_agents=30,start_seed=9000,sgd_minibatch_size=512,1=5,train_batch_size=1024,use_svo=Fals_2023-09-13_22-22-19/checkpoint_001581'
 
     # checkpoint_path = ScCO_30a_5000_intersection_no_others_nei_dis_10m
     checkpoint_path = ScCO_30a_5000_intersection_no_others_nei_dis_10m_max_r_init_0
@@ -262,10 +267,24 @@ def get_algo_new():
     checkpoint_path = irat_best_aiboy_2
     checkpoint_path = irat_best_aiboy_86
     checkpoint_path = irat_temp
-    # checkpoint_path = ippo_4wokers
+    checkpoint_path = scpo
+    checkpoint_path = ippo_8workers
+    checkpoint_path = scpo_test
+
+
+
+    # copo_inter='exp_CoPO/CoPO_Inter_30agents_0/CoPOTrainer_Intersection_e05af_00000_0_start_seed=5000_2023-09-24_01-01-45/checkpoint_000970'
+    copo_inter2='exp_CoPO/CoPO_Inter_30agents_1M/CoPOTrainer_Intersection_16951_00000_0_start_seed=7000_2023-09-26_00-39-25/checkpoint_000977'
+    checkpoint_path = copo_inter2
+
+
     algo = Algorithm.from_checkpoint(checkpoint_path)
 
-    return algo
+    name = None
+    if 'CoPO' in checkpoint_path:
+        name = 'CoPO'
+
+    return algo, name, checkpoint_path
 
 
 def compute_actions_for_multi_agents_separately(algo, obs, state=None):
@@ -307,26 +326,64 @@ def compute_actions(algo: Algorithm, obs, extra_actions=False):
         return actions
 
 
+def get_ckp() -> Tuple:
+    copo_inter2='exp_CoPO/CoPO_Inter_30agents_1M/CoPOTrainer_Intersection_16951_00000_0_start_seed=7000_2023-09-26_00-39-25/checkpoint_000977'
+
+    scpo_test='exp_SCPO/SCPO_Inter_30agents_TUNING_2M_(fast_convergence)_1/SCPOTrainer_Intersection_f2c09_00000_0_num_agents=30,start_seed=9000,sgd_minibatch_size=512,1=5,train_batch_size=1024,use_svo=Fals_2023-09-13_22-22-19/checkpoint_001581'
+
+
+    scpo_inter_88 = 'exp_SCPO/BEST_Backup/AIBOY/SCPOTrainer_Intersection_99ed5_00007_7_num_agents=30,start_seed=5000,0=1000000.0000,1=1,1=5,0=800000.0000,1=0.5000_2023-09-23_01-08-07/checkpoint_001450' # 88%
+
+    ippo_inter = 'exp_IPPO/IPPO_Inter_30agents_4workers_2M/IPPOTrainer_Intersection_1d8aa_00000_0_num_agents=30,start_seed=5000,num_others=0_2023-09-10_15-53-22/checkpoint_001917'
+
+    ccppo_inter = 'exp_CCPPO/CCPPO_Inter_30agents_concat/CCPPOTrainer_Intersection_fd7fd_00000_0_start_seed=5000_2023-09-23_14-18-19/checkpoint_001320'
+
+
+    # checkpoint_path = scpo_test
+    # checkpoint_path = scpo_inter_88
+    # checkpoint_path = ippo_inter
+    checkpoint_path = ccppo_inter
+
+    if 'IPPO' in checkpoint_path:
+        algo_name = 'ippo'
+    elif 'CCPPO' in checkpoint_path:
+        algo_name = 'ccppo'
+    elif 'SCPO' in checkpoint_path:
+        algo_name = 'scpo'
+    elif 'CoPO' in checkpoint_path:
+        algo_name = 'copo'
+    else:
+        raise NotImplementedError
+    return checkpoint_path, algo_name, 'CoPO' in checkpoint_path
+
+def get_algo(ckp):
+    algo = Algorithm.from_checkpoint(ckp)
+    return algo
 
 if __name__ == "__main__":
     from metadrive.component.vehicle.base_vehicle import BaseVehicle
+    from env.env_copo import get_lcf_env, get_lcf_from_checkpoint
     from env.env_wrappers import get_rllib_compatible_env, get_neighbour_env
     from env.env_utils import get_metadrive_ma_env_cls
+    from draw_trajectory import get_single_frame
 
-    env_name, env_cls = get_rllib_compatible_env(
-                        get_neighbour_env(
-                        get_metadrive_ma_env_cls(SCENE)), 
-                        return_class=True)
 
-    # env_name, env_cls = get_rllib_compatible_env(
-    #                         get_tracking_md_env(
-    #                             get_metadrive_ma_env_cls(SCENE)
-    #                         ), return_class=True)
+    ckp, algo_name, should_wrap_copo = get_ckp()
+
+    env_cls, env_abbr_name = get_metadrive_ma_env_cls(SCENE, return_abbr=True) 
+
+    # TEST_CoPO = True # <~~
+    if should_wrap_copo:
+        env_cls = get_lcf_env(env_cls)
+    else:
+        env_cls = get_neighbour_env(env_cls)
+    env_name, env_cls = get_rllib_compatible_env(env_cls, return_class=True)
 
    # === Environmental Setting ===
     env_config = dict(
         use_render=False,
         num_agents=30,    
+        horizon=1000,
         allow_respawn=True,
         return_single_space=True,
         # crash_done=True,
@@ -348,21 +405,30 @@ if __name__ == "__main__":
         # neighbours_distance=40,
     )
     
-    algo = get_algo_new()
+    algo = get_algo(ckp)
+    print('=== Testing ', algo_name, env_abbr_name)
 
     # === init metric callbacks ===
     callbacks = MetricCallbacks()
 
     env = env_cls(env_config)
+    if should_wrap_copo:
+        lcf_mean, lcf_std = get_lcf_from_checkpoint(ckp)
+        print('=== get lcf mean/std:', lcf_mean, lcf_std)
+        env.set_lcf_dist(lcf_mean, lcf_std)
     obs, infos = env.reset()
+    print('=== start_seed:', env.config['start_seed'])
+
     callbacks.on_episode_start()
 
     stop_render = False
-    NUM_EPISODES_TOTAL = 10
+    NUM_EPISODES_TOTAL = 1
     cur_epi = 0
 
     RENDER = False
     RENDER = True
+
+    RECORD_TRAJ = True
 
     episodic_mean_rews = []
     episodic_mean_succ_rate = []
@@ -399,6 +465,9 @@ if __name__ == "__main__":
 
     epi_neighbours_list = defaultdict(list)
 
+    frame = []
+
+
     while not stop_render:
         
         # if ALGO == 'ARPPO' or ALGO == 'ARCCPPO_concat':
@@ -414,8 +483,10 @@ if __name__ == "__main__":
             actions = compute_actions(algo, obs, extra_actions=False)
             svo = None
 
-        obs, rew, term, trunc, infos = env.step(actions)
+        obs, r, tm, tc, infos = env.step(actions)
         callbacks.on_episode_step(infos=infos)
+
+        frame.append(get_single_frame(env, tm, infos))
 
         # on_episode_step()
         for a, info in infos.items():
@@ -423,7 +494,7 @@ if __name__ == "__main__":
 
 
         # === episode end ===
-        if term['__all__']:
+        if tm['__all__']:
             cur_epi += 1
             callbacks.on_episode_end(metrics)
             epi_succ_rate_list.append(metrics["success_rate"])
@@ -450,6 +521,12 @@ if __name__ == "__main__":
             print('min num_neighbours', np.min(all_mean_nei))
             print('max_nei', max_nei)
             
+            if RECORD_TRAJ:
+                traj = {'frame': frame}
+                file_name = f'trajectories/traj/traj_{algo_name}_{env_abbr_name.lower()}.pkl'
+                with open(file_name, 'wb') as file:
+                    pickle.dump(traj, file)
+                print('\n== traj saved at', file_name, '\n')
 
             if cur_epi >= NUM_EPISODES_TOTAL:
                 stop_render = True
@@ -458,23 +535,28 @@ if __name__ == "__main__":
             callbacks.on_episode_start()
             obs, infos = env.reset()
            
+           
         if RENDER:
-            # vehicles = env.vehicles_including_just_terminated
-            vehicles = env.vehicles
+            vehicles = env.vehicles_including_just_terminated
+            # vehicles = env.vehicles
             for agent in actions:
                 break
-            if agent in vehicles:
+            if agent in vehicles and vehicles[agent]:
                 v: BaseVehicle = vehicles[agent]
                 color = v.panda_color
+                position = vehicles[agent].position
             else:
                 v = None
                 color = None
+                position = None
 
             text = {
                 'id ': f'{agent}',
                 'color': color,
-                # position=vehicle.position,
+                'position': f'{position}',
             }
+            # print(position)
+            # input()
 
             if svo is not None:
                 svo_args = {
@@ -485,14 +567,16 @@ if __name__ == "__main__":
                 text.update(svo_args)
 
             env.render(
-                text=text,
-                current_track_vehicle = None,
+                text=None,
+                num_stack=15, # default 15
+                # current_track_vehicle = v,
                 mode="top_down", 
-                film_size=(1000, 1000),
-                screen_size=(1000, 1000),
+                # draw_target_vehicle_trajectory=True,
+                film_size=(800, 800),
+                screen_size=(800, 800),
             )
 
-    env.close()
+    # env.close()
     print_final_summary((
         epi_succ_rate_list, 
         epi_crash_rate_list, 

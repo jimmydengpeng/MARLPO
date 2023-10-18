@@ -54,7 +54,7 @@ def add_neighbour_rewards(
             #     sample_batch['agent_index'][i], 
             #     sample_batch[SampleBatch.T][i])
             # )
-            assert set(info.keys()) == set([0])
+            assert set(info.keys()) == set([0]), info.keys()
             assert sample_batch['t'][0] == 0
             keys = [info.keys() for info in infos]
             assert [0] == [i for i, k in enumerate(keys) if k == set([0])]

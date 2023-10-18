@@ -306,6 +306,8 @@ class NeighbourEnv(TrackingEnv):
     def default_config(cls):
         config = super().default_config()
         config["neighbours_distance"] = 40
+        # ====== for eval =======
+        config['return_mean_nei_rewards'] = False # return a list of neighbour rewards in info by default
         # ====== for backward compatible =====
         config['add_nei_state'] = False
         config['use_dict_obs'] = False
@@ -381,14 +383,28 @@ class NeighbourEnv(TrackingEnv):
             infos[agent]["neighbours_distance"] = nei_distances
 
             if rewards:
+                # 需要加入邻居奖励到info中
                 nei_rewards = [rewards[nei] for nei in neighbours]
-                infos[agent][NEI_REWARDS] = nei_rewards
+
+                if nei_rewards: # 邻居奖励不为空
+                    if self.config['return_mean_nei_rewards']:
+                        infos[agent][NEI_REWARDS] = np.mean(nei_rewards)
+                    else:
+                        infos[agent][NEI_REWARDS] = nei_rewards
+                else:
+                    if self.config['return_mean_nei_rewards']:
+                        infos[agent][NEI_REWARDS] = 0.0
+                    else:
+                        infos[agent][NEI_REWARDS] = []
                 # if nei_rewards:
                     # agent_info["nei_rewards"] = sum(nei_rewards) / len(nei_rewards)
                 # else:
                 #     i[agent_name]["nei_rewards"] = 0.0  # Do not provide neighbour rewards if no neighbour
-            else:
-                infos[agent][NEI_REWARDS] = []
+            else: # for env.reset(), there's no `rewards` provided!!
+                if self.config['return_mean_nei_rewards']:
+                    infos[agent][NEI_REWARDS] = 0.0
+                else:
+                    infos[agent][NEI_REWARDS] = []
 
 
 def get_neighbour_env(env_class):

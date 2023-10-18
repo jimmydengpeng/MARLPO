@@ -42,13 +42,11 @@ def get_other_training_configs(
     else:
         if num_agents is None:
             num_agents = get_env_default_num_agents(scene)
+        num_rollout_workers = get_num_workers(args)
         exp_name = get_exp_name(algo_name, exp_des, scene, num_agents, num_rollout_workers)
         if not isinstance(num_agents, list) and isinstance(num_agents, int):
             num_agents = [num_agents]
-        num_rollout_workers = get_num_workers()
 
-    if args.num_workers:
-        num_rollout_workers = args.num_workers
     if args.num_agents is not None:
         num_agents = [args.num_agents] 
 
@@ -71,7 +69,9 @@ def get_exp_name(algo_name, exp_des, scene, num_agents, num_workers):
     return algo_name + f"_{get_abbr_scene(scene)}_{get_num_agents_str(num_agents)}agents_{num_workers}workers" + EXP_SUFFIX
 
 
-def get_num_workers():
+def get_num_workers(args):
+    if args.num_workers:
+        return args.num_workers
     if sys.platform.startswith('darwin'):
         return 4
     elif sys.platform.startswith('linux'):

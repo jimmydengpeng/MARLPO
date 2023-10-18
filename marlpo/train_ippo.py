@@ -12,31 +12,30 @@ from utils.utils import (
     get_other_training_configs,
 )
 
-''' Training Command Exmaple:
-python marlpo/train_ippo.py --num_agents=30 --num_workers=4 --test
-'''
+# Training Command Exmaple:
+# python marlpo/train_ippo.py --num_agents=30 --num_workers=4 --test
+
 ALGO_NAME = "IPPO"
 
 TEST = True # <~~ Default TEST mod here! Don't comment out this line!
             # Also can be assigned in terminal command args by "--test"
             # Will be True once anywhere (code/command) appears True!
-# TEST = False # <~~ Comment to use TEST mod here! Uncomment to use training mod!
+TEST = False # <~~ Comment/Uncomment to use TEST/Training mod here! 
 
-SCENE = "intersection" # <~~ Change env name here! will be automaticlly converted to env class
+SCENE = "intersection" # <~~ Change env name here!
+# it will be automaticlly converted to env class
 
 SEEDS = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-SEEDS = [5000, 6000, 7000]
-SEEDS = [8000, 9000, 10000, 11000, 12000]
-SEEDS = [5000]
+# SEEDS = [9000, 10000, 11000, 12000]
 
-NUM_AGENTS = 30
+NUM_AGENTS = None # <~~ set to None for env's default num_agents
 
-EXP_DES = ""
+EXP_DES = "2M_lr=3e-5"
 INDEPENDT = False
 
 
 if __name__ == "__main__":
-    # == Get Args ==
+    # === Get & Check for Args ===
     args = get_train_parser().parse_args()
     MA_CONFIG = {} if not INDEPENDT else dict(
                 policies=set([f"agent{i}" for i in range(NUM_AGENTS)]),
@@ -78,7 +77,7 @@ if __name__ == "__main__":
 # ╰───────────────────────────────────────────╯
 
 
-    # === Algo Setting ===
+    # === Algo Configs ===
     ppo_config = (
         IPPOConfig()
         .framework('torch')
@@ -93,7 +92,8 @@ if __name__ == "__main__":
         .training(
             train_batch_size=1024,
             gamma=0.99,
-            lr=3e-4,
+            # lr=3e-4,
+            lr=tune.grid_search([3e-5]),
             sgd_minibatch_size=512,
             num_sgd_iter=5,
             lambda_=0.95,

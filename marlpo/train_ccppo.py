@@ -5,7 +5,7 @@ from callbacks import MultiAgentDrivingCallbacks
 from env.env_wrappers import get_rllib_compatible_env, get_tracking_md_env
 from env.env_utils import get_metadrive_ma_env_cls
 from train import train
-from utils import (
+from utils.utils import (
     get_train_parser, 
     get_training_resources, 
     get_other_training_configs,
@@ -23,12 +23,12 @@ TEST = False # <~~ Comment to use TEST mod here! Uncomment to use training mod!
 
 SCENE = "intersection" # <~~ Change env name here! will be automaticlly converted to env class
 
-SEEDS = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-# SEEDS = [5000]
+# SEEDS = [10000, 11000]
+SEEDS = [5000]
 
 NUM_AGENTS = 30
 
-EXP_DES = "concat"
+EXP_DES = "2M_lr=3e-5"
 
 
 if __name__ == "__main__":
@@ -61,7 +61,7 @@ if __name__ == "__main__":
         )))
 
 # ╭──────────────── for test ─────────────────╮
-    stop = {"timesteps_total": 1.6e6}            
+    stop = {"timesteps_total": 2e6}            
     if TEST : stop ={"training_iteration": 5}    
 # ╰───────────────────────────────────────────╯
 
@@ -71,7 +71,7 @@ if __name__ == "__main__":
         CCPPOConfig()
         .framework('torch')
         .resources(
-            num_cpus_per_worker=0.25,
+            num_cpus_per_worker=0.125,
             **get_training_resources()
         )
         .rollouts(
@@ -81,7 +81,8 @@ if __name__ == "__main__":
         .training(
             train_batch_size=1024,
             gamma=0.99,
-            lr=3e-4,
+            # lr=3e-4,
+            lr=3e-5,
             sgd_minibatch_size=512,
             num_sgd_iter=5,
             lambda_=0.95,
@@ -96,8 +97,8 @@ if __name__ == "__main__":
         )
         .update_from_dict(dict(
             counterfactual=True,
-            fuse_mode="concat",
-            # fuse_mode=tune.grid_search(["mf", "concat"]),
+            # fuse_mode="concat",
+            fuse_mode=tune.grid_search(["mf", "concat"]),
             mf_nei_distance=10,
         ))
     )
@@ -109,7 +110,7 @@ if __name__ == "__main__":
         stop=stop,
         exp_name=exp_name,
         checkpoint_freq=10,
-        keep_checkpoints_num=3,
+        keep_checkpoints_num=10,
         num_gpus=0,
         results_path='exp_'+ALGO_NAME,
         test_mode=TEST,

@@ -1,5 +1,6 @@
 import logging
 from typing import Union, Dict
+import colorlog
 import rich
 from rich import print, inspect
 from rich.panel import Panel
@@ -32,13 +33,29 @@ def reduce_window_width(file_name: str = None):
 
 
 def get_logger():
-    logger = logging.getLogger("marlpo")
+    logger = logging.getLogger("ROOT")
+    logger.setLevel(logging.DEBUG)
     handler = logging.StreamHandler()
+    # 创建一个自定义的 Formatter，指定日志的颜色和样式
     handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s\t%(levelname)s (marlpo) %(filename)s:%(lineno)s -- %(message)s"
+        colorlog.ColoredFormatter(
+            '%(asctime)s [%(levelname)s] (%(filename)s:%(lineno)s) %(log_color)s %(message)s',
+            log_colors={
+                'DEBUG': 'cyan',
+                'INFO': 'green',
+                'WARNING': 'yellow',
+                'ERROR': 'red',
+                'CRITICAL': 'red,bg_white',
+            }
         )
     )
+
+    # handler.setFormatter(
+    #     logging.Formatter(
+    #         "%(asctime)s\t%(levelname)s (marlpo) %(filename)s:%(lineno)s -- %(message)s"
+    #     )
+    # )
+
     logger.addHandler(handler)
     logger.propagate = False
     return logger

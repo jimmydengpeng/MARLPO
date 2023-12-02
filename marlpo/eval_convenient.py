@@ -26,7 +26,7 @@ from env.env_wrappers import get_rllib_compatible_env, get_tracking_md_env
 
 # === Set a lot of configs ===
 
-# SCENE = "roundabout"
+SCENE = "roundabout"
 SCENE = "intersection"
 # ALGO = 'IPPO'
 # ALGO = 'ARPPO'
@@ -338,11 +338,13 @@ def get_ckp() -> Tuple:
 
     ccppo_inter = 'exp_CCPPO/CCPPO_Inter_30agents_concat/CCPPOTrainer_Intersection_fd7fd_00000_0_start_seed=5000_2023-09-23_14-18-19/checkpoint_001320'
 
+    ccppo_round = 'exp_CCPPO/CCPPO_Round_40agents_8workers_2M_concat+mf_8seeds_lr=3e-5/CCPPOTrainer_Roundabout_f1bb2_00008_8_start_seed=5000,fuse_mode=concat_2023-10-20_22-42-50/checkpoint_001880'
 
     # checkpoint_path = scpo_test
-    # checkpoint_path = scpo_inter_88
+    checkpoint_path = scpo_inter_88
     # checkpoint_path = ippo_inter
-    checkpoint_path = ccppo_inter
+    # checkpoint_path = ccppo_inter
+    # checkpoint_path = ccppo_round
 
     if 'IPPO' in checkpoint_path:
         algo_name = 'ippo'
@@ -382,13 +384,13 @@ if __name__ == "__main__":
    # === Environmental Setting ===
     env_config = dict(
         use_render=False,
-        num_agents=30,    
+        # num_agents=40,    
         horizon=1000,
         allow_respawn=True,
         return_single_space=True,
         # crash_done=True,
         # delay_done=0,
-        start_seed=5000,
+        # start_seed=5000,
         delay_done=25,
         vehicle_config=dict(
             lidar=dict(
@@ -422,7 +424,7 @@ if __name__ == "__main__":
     callbacks.on_episode_start()
 
     stop_render = False
-    NUM_EPISODES_TOTAL = 1
+    NUM_EPISODES_TOTAL = 10
     cur_epi = 0
 
     RENDER = False
@@ -572,8 +574,8 @@ if __name__ == "__main__":
                 # current_track_vehicle = v,
                 mode="top_down", 
                 # draw_target_vehicle_trajectory=True,
-                film_size=(800, 800),
-                screen_size=(800, 800),
+                film_size=(1200, 1200),
+                screen_size=(1200, 1200),
             )
 
     # env.close()

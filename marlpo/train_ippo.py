@@ -8,7 +8,6 @@ from callbacks import MultiAgentDrivingCallbacks
 from train import train
 from utils.utils import (
     get_train_parser, 
-    get_training_resources, 
     get_other_training_configs,
 )
 
@@ -25,12 +24,13 @@ TEST = False # <~~ Comment/Uncomment to use TEST/Training mod here!
 SCENE = "intersection" # <~~ Change env name here!
 # it will be automaticlly converted to env class
 
-SEEDS = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+# SEEDS = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+SEEDS = [0]
 # SEEDS = [9000, 10000, 11000, 12000]
 
 NUM_AGENTS = None # <~~ set to None for env's default num_agents
 
-EXP_DES = "2M_lr=3e-5"
+EXP_DES = "2M_lr=3e-5_tuning"
 INDEPENDT = False
 
 
@@ -42,7 +42,7 @@ if __name__ == "__main__":
                 policy_mapping_fn=(lambda agent_id, *args, **kwargs: agent_id))
 
     # Check for all args & configs!
-    num_agents, exp_name, num_rollout_workers, seeds, TEST = \
+    NUM_AGENTS, exp_name, num_rollout_workers, num_cpus_per_worker, SEEDS, TEST = \
                                     get_other_training_configs(
                                         args=args,
                                         algo_name=ALGO_NAME, 
@@ -59,17 +59,16 @@ if __name__ == "__main__":
 
     # === Environmental Configs ===
     env_config = dict(
+        num_agents=NUM_AGENTS[0] if isinstance(NUM_AGENTS, list) else NUM_AGENTS,
         allow_respawn=(not INDEPENDT),
         return_single_space=True,
-        start_seed=tune.grid_search(seeds),
+        start_seed=tune.grid_search(SEEDS),
         vehicle_config=dict(
             lidar=dict(
                 num_lasers=72, 
                 distance=40, 
                 num_others=0,
     )))
-    env_config.update({'num_agents': tune.grid_search(num_agents) 
-                       if len(num_agents) > 1 else num_agents[0]})
 
 # ╭──────────────── for test ─────────────────╮
     stop = {"timesteps_total": 2e6}            
@@ -82,8 +81,8 @@ if __name__ == "__main__":
         IPPOConfig()
         .framework('torch')
         .resources(
-            num_cpus_per_worker=0.125,
-            **get_training_resources()
+            num_cpus_per_worker=num_cpus_per_worker,
+            num_gpus=0,
         )
         .rollouts(
             num_rollout_workers=num_rollout_workers,
@@ -92,8 +91,8 @@ if __name__ == "__main__":
         .training(
             train_batch_size=1024,
             gamma=0.99,
-            # lr=3e-4,
-            lr=tune.grid_search([3e-5]),
+            lr=3e-4,
+            # lr=tune.grid_search([3e-5]),
             sgd_minibatch_size=512,
             num_sgd_iter=5,
             lambda_=0.95,
@@ -109,6 +108,7 @@ if __name__ == "__main__":
         )
         .update_from_dict(dict(
             norm_adv=False,
+            vf_clip_param=tune.grid_search([10, 50, 100, 1000])
         ))
     )
 
@@ -119,8 +119,8 @@ if __name__ == "__main__":
         config=ppo_config,
         stop=stop,
         exp_name=exp_name,
-        checkpoint_freq=3,
-        keep_checkpoints_num=3,
+        checkpoint_freq=5,
+        keep_checkpoints_num=5,
         num_gpus=0,
         results_path='exp_'+ALGO_NAME,
         test_mode=TEST,

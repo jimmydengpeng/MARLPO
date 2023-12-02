@@ -19,43 +19,46 @@ TEST = True # <~~ Default TEST mod here! Don't comment out this line!
             # Will be True once anywhere (code/command) appears True!
 TEST = False # <~~ Comment/Uncomment to use TEST/Training mod here! 
 
-SCENE ="intersection" #, [roundabout, 'tollgate', 'parkinglot'] # <~~ Change env name here! will be automaticlly converted to env class
+SCENE = "roundabout" #, [, 'tollgate', 'parkinglot'] # <~~ Change env name here! will be automaticlly converted to env class
+# intersection roundabout
 
-SEEDS = [5000]
-# SEEDS = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+# SEEDS = [5000]
+SEEDS = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+# SEEDS = [7000, 8000, 9000, 10000, 11000, 12000]
 
 NUM_AGENTS = None # <~~ set to None for env's default `num_agents`
 
-EXP_DES = "2M"
+EXP_DES = "2M_lr=3e-5[Mac]2"
 
 
 if __name__ == "__main__":
     args = get_train_parser().parse_args()
-    num_agents, exp_name, num_rollout_workers, seeds, TEST = \
-                                    get_other_training_configs(
-                                        args=args,
-                                        algo_name=ALGO_NAME, 
-                                        exp_des=EXP_DES, 
-                                        scene=SCENE, 
-                                        num_agents=NUM_AGENTS,
-                                        seeds=SEEDS,
-                                        test=TEST) 
+    NUM_AGENTS, exp_name, num_rollout_workers, num_cpus_per_worker, SEEDS, TEST = \
+                    get_other_training_configs(
+                        args=args,
+                        algo_name=ALGO_NAME, 
+                        exp_des=EXP_DES, 
+                        scene=SCENE, 
+                        num_agents=NUM_AGENTS,
+                        seeds=SEEDS,
+                        test=TEST) 
     
     env_name, env_cls = get_rllib_compatible_env(
                         get_lcf_env(
                         get_metadrive_ma_env_cls(SCENE)), return_class=True)
     
     env_config = dict(
+        num_agents=NUM_AGENTS[0] if isinstance(NUM_AGENTS, list) else NUM_AGENTS,
         return_single_space=True,
-        start_seed=tune.grid_search(seeds),
+        start_seed=tune.grid_search(SEEDS),
         vehicle_config=dict(
             lidar=dict(
                 num_lasers=72, 
                 distance=40, 
                 num_others=0,
     )))
-    env_config.update({'num_agents': tune.grid_search(num_agents) 
-                       if len(num_agents) > 1 else num_agents[0]})
+    # env_config.update({'num_agents': tune.grid_search(num_agents) 
+    #                    if len(num_agents) > 1 else num_agents[0]})
 
 # ╭──────────────── for test ─────────────────╮
     stop = {"timesteps_total": 2e6}            
@@ -68,8 +71,8 @@ if __name__ == "__main__":
         CoPOConfig()
         .framework('torch')
         .resources(
-            num_cpus_per_worker=0.2,
-            **get_training_resources()
+            num_cpus_per_worker=num_cpus_per_worker,
+            num_gpus=0,
         )
         .rollouts(
             num_rollout_workers=num_rollout_workers,
@@ -78,7 +81,8 @@ if __name__ == "__main__":
         .training(
             train_batch_size=1024,
             gamma=0.99,
-            lr=3e-4,
+            # lr=3e-4,
+            lr=3e-5,
             sgd_minibatch_size=512,
             num_sgd_iter=5,
             lambda_=0.95,
@@ -105,8 +109,8 @@ if __name__ == "__main__":
         config=algo_config,
         stop=stop,
         exp_name=exp_name,
-        checkpoint_freq=10,
-        keep_checkpoints_num=10,
+        checkpoint_freq=5,
+        keep_checkpoints_num=3,
         num_gpus=0,
         results_path='exp_'+ALGO_NAME,
         test_mode=TEST,

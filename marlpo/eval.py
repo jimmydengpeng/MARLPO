@@ -1,13 +1,14 @@
-""" This a formal evaluation script for all algos.
-Usage:
+"""
+=== This a formal evaluation script for all algos ===
+[Usage]:
 Just specify the abs. or rel. path to an 'algo/experiment folder'
 folder, e.g. ippo.
 
-Note:
-1. The 'algo/experiment folder' contains one or more 'trial folders',
-which is usually of different seeds;
+[Note]:
+1. The 'algo/experiment folder' contains one or more 'trial folders', 
+    which is usually of different seeds;
 2. Each 'trial folder' contains many 'checkpoint folders',
-which contains the 'params.json' and 'progress.csv'.
+    which contains the 'params.json' and 'progress.csv'.
 
 Example:
 evaluation
@@ -37,11 +38,11 @@ from rich.panel import Panel
 from rich.progress import Progress
 import logging
 
-from ray.rllib.utils.deprecation import logger
-logger.setLevel(logging.ERROR)
+# from ray.rllib.utils.deprecation import logger
+# logger.setLevel(logging.ERROR)
 # export PYTHONWARNINGS="ignore::DeprecationWarning"
-from ray.rllib.models.catalog import logger as logger2
-logger2.setLevel(logging.ERROR)
+# from ray.rllib.models.catalog import logger as logger2
+# logger2.setLevel(logging.ERROR)
 
 from ray.rllib.algorithms import Algorithm
 
@@ -49,7 +50,7 @@ from env.env_copo import get_lcf_env, get_lcf_from_checkpoint
 from env.env_wrappers import get_rllib_compatible_env, get_neighbour_env
 from env.env_utils import get_metadrive_ma_env_cls, parse_env_name
 from evaluation.recoder import RecorderEnv
-from utils.debug import printPanel, print, dict_to_panel
+from utils.debug import printPanel, print, dict_to_panel, seconds_to_hms
 
 
 def get_eval_env(env_name: str, env_config={}):
@@ -222,21 +223,23 @@ if __name__ == '__main__':
     parser = get_parser()
     args = parser.parse_args()
 
-    # args.root = 'exp_SCPO/AIBOY/SCPOTrainer_Intersection_87c48_00008_8_num_agents=30,start_seed=5000,1=3,1=10_2023-08-28_18-49-15'
-    # args.root = 'exp_CoPO/CoPO_Inter_30agents_0/CoPOTrainer_Intersection_e05af_00000_0_start_seed=5000_2023-09-24_01-01-45/'
-    args.root = 'evaluate_checkpoints/ippo' # IPPO!!!
-    # args.root = 'marlpo/evaluation/demo_raw_checkpoints/copo'
-    args.num_episodes=20
+    # TODO: 区分不同环境
+    args.root = 'eval_checkpoints/ccppo-mf/round' # <~~ MANUAL CHANGE HERE!!
+    args.num_episodes = 20
+
+    SAVE_PATH = './eval_results' # 项目主目录下
     
     with Progress(transient=False) as progress:
-        progress.console.log("\nEvaluation begins. The results will be saved at: ", "./evaluate_results/\n")
+        progress.console.log(
+            '\nEvaluation begins. The results will be saved at:',
+            f"{SAVE_PATH}\n")
 
         root = args.root
         num_episodes = args.num_episodes
         should_render = args.render
 
         root = os.path.abspath(root)
-        algo_name = root.split('/')[-1] # TODO 
+        algo_name = root.split('/')[-2] # ippo/inter
 
         # == Get Checkpoints ==
         checkpoint_infos = get_checkpoint_infos(root)
@@ -245,14 +248,13 @@ if __name__ == '__main__':
         #     printPanel(info)
 
         # == Evaluating ==
-        os.makedirs("evaluate_results", exist_ok=True)
-
+        os.makedirs(f"{SAVE_PATH}", exist_ok=True)
 
         num_ckpts = len(checkpoint_infos)
    
         num_step_estimate = 1100
         step_esti_coeff = 0.1
-        eval_start_time = time.time()
+        start_time = time.time()
         # task_ckpt = progress.add_task("[cyan]Checkpoint", total=num_ckpts)
         # task_epi = progress.add_task("[orange1]Episode", total=num_episodes)
         task_step = progress.add_task("[cyan]Evaluating", total=num_step_estimate)
@@ -270,7 +272,7 @@ if __name__ == '__main__':
             formal_name, abbr_name = parse_env_name(ckpt_info["env"])
             env_name = abbr_name.lower()
             result_name = f"{algo_name}_{env_name}_{ckpt_idx}"
-            result_save_path = f"evaluate_results/{result_name}.csv"
+            result_save_path = f"{SAVE_PATH}/{result_name}.csv"
 
             # === Setup environment
             if ckpt_info['should_wrap_copo_env']:
@@ -355,16 +357,17 @@ if __name__ == '__main__':
 
                     brief_res_dict = get_brief_epi_res(res)
                     brief_res_dict.update({
-                                'epi_time_elapse': f'{ep_times[-1]:.3f}s',
-                                'average_epi_time': f'{np.mean(ep_times):.3f}s',
-                                'total_eval_time': f'{(time.time()-eval_start_time):.3f}s',
+                                'this_epi_time_cost': f'{ep_times[-1]:.1f}s',
+                                'average_epi_time': f'{np.mean(ep_times):.1f}s',
+                                'total_eval_time': seconds_to_hms(time.time()-start_time),
                             })
                     progress.console.log(
                         dict_to_panel(
                             brief_res_dict, 
                             title=f"{res['algo'].upper()} • "
-                                  f"Episode {epi_count}/{num_episodes} • "
-                                  f"Checkpoint {ckpt_idx+1}/{num_ckpts}"
+                                  f"{abbr_env_name} • "
+                                  f"Epi {epi_count}/{num_episodes} • "
+                                  f"Ckp {ckpt_idx+1}/{num_ckpts}"
                         )
                     )
 

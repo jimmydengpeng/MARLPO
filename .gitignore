@@ -1440,6 +1440,8 @@ tensorboard.sh
 exp*/
 
 evaluate_results
+eval_results
 evaluate_checkpoints
+eval_checkpoints
 trajectories
 demo*

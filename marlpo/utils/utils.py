@@ -42,7 +42,7 @@ def get_other_training_configs(
     else:
         if num_agents is None:
             num_agents = get_env_default_num_agents(scene)
-        num_rollout_workers = get_num_workers(args)
+        num_rollout_workers, num_cpus_per_worker = get_training_resources(args)
         exp_name = get_exp_name(algo_name, exp_des, scene, num_agents, num_rollout_workers)
         if not isinstance(num_agents, list) and isinstance(num_agents, int):
             num_agents = [num_agents]
@@ -50,7 +50,7 @@ def get_other_training_configs(
     if args.num_agents is not None:
         num_agents = [args.num_agents] 
 
-    return num_agents, exp_name, num_rollout_workers, seeds, test
+    return num_agents, exp_name, num_rollout_workers, num_cpus_per_worker, seeds, test
 
 
 def get_num_agents_str(num_agents):
@@ -73,27 +73,19 @@ def get_num_workers(args):
     if args.num_workers:
         return args.num_workers
     if sys.platform.startswith('darwin'):
-        return 4
+        return 8
     elif sys.platform.startswith('linux'):
-        return 4
+        return 8
     else:
         return 0
 
 
-def get_training_resources():
-    if sys.platform.startswith('darwin'):
-        # No GPUs
-        return dict(
-            num_gpus=0,
-            # num_cpus_per_trainer_worker
-            # num_cpus_per_worker=0.5,
-        )
-    elif sys.platform.startswith('linux'):
-        # 1 GPU
-        return dict(
-            num_gpus=0,
-            # num_cpus_per_worker=0.5,
-            # num_gpus_per_learner_worker=,
-        )
+def get_training_resources(args):
+    num_w = get_num_workers(args)
+    if num_w == 8:
+        num_cpus_w = 0.125
+    elif num_w == 4:
+        num_cpus_w = 0.25
     else:
-        return {}
+        raise NotImplementedError
+    return num_w, num_cpus_w

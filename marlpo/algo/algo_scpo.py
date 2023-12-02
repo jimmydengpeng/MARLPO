@@ -309,7 +309,7 @@ class SCPOPolicy(SCPOKLCoeffSchedule, PPOTorchPolicy):
         self, sample_batch, other_agent_batches=None, episode=None
     ):
         '''Args:
-            sample_batch: Dict[agent_id, Tuple['default_policy', Policy, SampleBatch]]
+            # sample_batch: Dict[agent_id, Tuple['default_policy', Policy, SampleBatch]]
         '''
         with torch.no_grad():
             sample_batch[ORIGINAL_REWARDS] = sample_batch[SampleBatch.REWARDS].copy()

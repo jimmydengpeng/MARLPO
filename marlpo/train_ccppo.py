@@ -21,20 +21,26 @@ TEST = True # <~~ Default TEST mod here! Don't comment out this line!
             # Will be True once anywhere (code/command) appears True!
 TEST = False # <~~ Comment to use TEST mod here! Uncomment to use training mod!
 
-SCENE = "intersection" # <~~ Change env name here! will be automaticlly converted to env class
+SCENE = "roundabout" # <~~ Change env name here!
+# it will be automaticlly converted to env class
+# intersection roundabout
 
 # SEEDS = [10000, 11000]
-SEEDS = [5000]
+SEEDS = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+# SEEDS = [5000, 7000, 9000, 10000]
+# SEEDS = [6000, 8000, 11000, 12000]
+# SEEDS = [5000, 8000, 10000 ] # concat
+# SEEDS = [8000, 10000, 12000 ] # mf
 
-NUM_AGENTS = 30
+NUM_AGENTS = None # <~~ set to `None` for env's default `num_agents`
 
-EXP_DES = "2M_lr=3e-5"
+EXP_DES = "2M_concat+mf_4seeds_lr=3e-4"
 
 
 if __name__ == "__main__":
     # == Get Args and Check all args & configs ==
     args = get_train_parser().parse_args()
-    NUM_AGENTS, exp_name, num_rollout_workers, SEEDS, TEST = \
+    NUM_AGENTS, exp_name, num_rollout_workers, num_cpus_per_worker, SEEDS, TEST = \
                                     get_other_training_configs(
                                         args=args,
                                         algo_name=ALGO_NAME, 
@@ -71,8 +77,8 @@ if __name__ == "__main__":
         CCPPOConfig()
         .framework('torch')
         .resources(
-            num_cpus_per_worker=0.125,
-            **get_training_resources()
+            num_cpus_per_worker=num_cpus_per_worker,
+            num_gpus=0,
         )
         .rollouts(
             num_rollout_workers=num_rollout_workers,
@@ -81,8 +87,8 @@ if __name__ == "__main__":
         .training(
             train_batch_size=1024,
             gamma=0.99,
-            # lr=3e-4,
-            lr=3e-5,
+            lr=3e-4,
+            # lr=3e-5,
             sgd_minibatch_size=512,
             num_sgd_iter=5,
             lambda_=0.95,
@@ -99,6 +105,7 @@ if __name__ == "__main__":
             counterfactual=True,
             # fuse_mode="concat",
             fuse_mode=tune.grid_search(["mf", "concat"]),
+            # fuse_mode=tune.grid_search(["concat"]),
             mf_nei_distance=10,
         ))
     )

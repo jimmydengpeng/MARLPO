@@ -377,6 +377,19 @@ def compare_all_metrics_for_multi_experiments(
     plt.suptitle(title)
 
 
+def plot_sep_mean(d, p=None, seeds=None):
+    if seeds == None:
+        seeds = [i*1000 for i in range(5, 13)]
+    if p == None:
+        pp = ''
+    else: pp = p
+    for s in seeds:
+        label = f'{p}_{s}' if p else f'{s}'
+        plot_one_exp(d, param_pattern=pp, seeds=s, exp_label=label)
+    label = f'{p}_mean' if p else f'mean'
+    plot_one_exp(d, param_pattern=pp, exp_label=label)
+
+
 def test_compare_all_metrics_for_multi_experiments():
     exp_dir = 'exp_results/SAPPO_Inter_30agents_v4(share_vf_5e6)[AIBOY]'
 

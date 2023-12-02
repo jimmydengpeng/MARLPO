@@ -334,7 +334,24 @@ def dict_to_panel(data, title=None):
     return Panel.fit(msg, title=title)
 
 
+def seconds_to_hms(seconds) -> str:
+    # 计算小时、分钟和秒
+    seconds = int(seconds)
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    remaining_seconds = seconds % 60
+
+    # 返回结果
+    if hours > 0:
+        return f'{hours}h {minutes}m {remaining_seconds}s'
+    else:
+        return f'{minutes}m {remaining_seconds}s'
+
+
+
 if __name__ == '__main__':
+    print(seconds_to_hms(12))
+    exit()
     import math
     t2 = torch.tensor(True)
 

@@ -1,3 +1,4 @@
+import os
 import logging
 from typing import Union, Dict
 import colorlog
@@ -30,6 +31,12 @@ def reduce_window_width(file_name: str = None):
         print(f'[red]({file_name}) rich console -= 30[/]: [blue]{rich.get_console().width}[/]')
 
 # reduce_window_width(WINDOWN_WIDTH_REDUCED)
+
+
+def suppress_rllib_warning():
+    # e.g.,
+    # This API is deprecated and may be removed in future Ray releases. You could suppress this warning by setting env variable PYTHONWARNINGS="ignore::DeprecationWarning"
+    os.environ["PYTHONWARNINGS"] = "ignore::DeprecationWarning"
 
 
 def get_logger():

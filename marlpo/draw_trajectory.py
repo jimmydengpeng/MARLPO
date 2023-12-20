@@ -8,7 +8,7 @@ import pygame
 
 from ray.rllib.algorithms import Algorithm
 
-from metadrive.envs.marl_envs import MultiAgentIntersectionEnv
+from metadrive.envs.marl_envs import MultiAgentIntersectionEnv, MultiAgentRoundaboutEnv
 from metadrive.policy.idm_policy import ManualControllableIDMPolicy
 from metadrive.constants import Decoration, TARGET_VEHICLES
 from metadrive.obs.top_down_obs_impl import WorldSurface, VehicleGraphics, LaneGraphics
@@ -49,7 +49,7 @@ COLOR_GRUVBOX = [(9, 163, 135), (213, 64, 0), (7, 128, 207), (222, 173, 5)]
 # Green, Red, Blue, Brown
 
 def draw_top_down_trajectory(
-    surface: WorldSurface, episode_data: dict, entry_differ_color=False, exit_differ_color=False, color_list=None
+    surface: WorldSurface, episode_data: dict, entry_differ_color=False, exit_differ_color=False, color_list=None, circle_radius=5
 ):
     if entry_differ_color or exit_differ_color:
         assert color_list is not None
@@ -109,12 +109,12 @@ def draw_top_down_trajectory(
                 continue
             start = state["position"]
             if state["done"]:
-                pygame.draw.circle(surface, (0, 0, 0), surface.pos2pix(start[0], start[1]), 7)
+                pygame.draw.circle(surface, (0, 0, 0), surface.pos2pix(start[0], start[1]), circle_radius)
     return surface
 
 
 
-def show_map_and_traj(file_path, algo_name, env_name):
+def show_map_and_traj(file_path, algo_name, env_name, succ_rate):
     import matplotlib.pyplot as plt
     # from metadrive.obs.top_down_renderer import draw_top_down_map
     import cv2
@@ -141,7 +141,18 @@ def show_map_and_traj(file_path, algo_name, env_name):
         traj = pickle.load(file)
     logger.info(f"frame length: {len(traj['frame'])}")
 
-    env = MultiAgentIntersectionEnv()
+    if env_name == 'inter':
+        env = MultiAgentIntersectionEnv()
+        screen_size = (1000, 1000)
+        film_size = (2250, 2250)
+        circle_radius = 11
+    elif env_name == 'round':
+        env = MultiAgentRoundaboutEnv()
+        screen_size = (1000, 1000)
+        film_size = (1500, 1500)
+        circle_radius = 11
+    else:
+        raise NotImplementedError
     env.reset()
 
     # road_color = (35,35,35) # (80, 80, 80)
@@ -171,7 +182,7 @@ def show_map_and_traj(file_path, algo_name, env_name):
     # colors = COLOR_MY
 
     m = draw_top_down_trajectory(
-        m, traj, entry_differ_color=True, color_list=colors
+        m, traj, entry_differ_color=True, color_list=colors, circle_radius=circle_radius
     )
 
     m = pygame.transform.flip(m, flip_x=True, flip_y=False)
@@ -182,7 +193,7 @@ def show_map_and_traj(file_path, algo_name, env_name):
 
     pygame.display.update()
 
-    pygame.image.save(screen, f"trajectories/{env_name}_{algo_name}.png")
+    pygame.image.save(screen, f"trajectories/{env_name}_{algo_name}_{succ_rate}.png")
 
     while True:
         handle_pygame_event()
@@ -472,18 +483,26 @@ class WorldSurface(pygame.Surface):
 
 
 if __name__ == '__main__':
-    # record_traj()
-    # traj_path = 'marlpo/traj_copo_inter.pkl'
-    # traj_path = 'marlpo/traj_scpo_inter.pkl'
+    # pkl_name = 'traj_ippo_inter_90.62%'
+    # pkl_name = 'traj_ippo_round_62.82%'
+    # pkl_name = 'traj_ippo_round_66.67%'
+    # pkl_name = 'traj_mappo_inter_70.71%'
+    # pkl_name = 'traj_mappo_round_88.17%'
+    pkl_name = 'traj_mfpo_inter_77.6%'
+    # pkl_name = 'traj_mfpo_round_84.21%'
+    # pkl_name = 'traj_mfpo_round_73.96%'
+    # pkl_name = 'traj_copo_inter_85.83%'
+    # pkl_name = 'traj_copo_round_84.21%'
+    # pkl_name = 'traj_scpo_inter_88.79%'
+    # pkl_name = 'traj_scpo_round_92.23%'
 
-    # traj_path = 'trajectories/traj/traj_ippo_inter.pkl'
-    # traj_path = 'trajectories/traj/traj_scpo_inter.pkl'
-    traj_path = 'trajectories/traj/traj_ccppo_inter.pkl'
+    traj_path = f'trajectories/traj/{pkl_name}.pkl'
 
     _tjpth = traj_path.split('/')[-1].split('.')[0].split('_')
     algo_name = _tjpth[1]
     env_name = _tjpth[2]
+    succ_rate = pkl_name.split('_')[-1]
 
     logger.debug(f'drawing traj for algo: {algo_name}, env: {env_name}')
 
-    show_map_and_traj(traj_path, algo_name, env_name)
+    show_map_and_traj(traj_path, algo_name, env_name, succ_rate)

@@ -224,10 +224,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # TODO: 区分不同环境
-    args.root = 'eval_checkpoints/ccppo-mf/round' # <~~ MANUAL CHANGE HERE!!
+    args.root = 'eval_checkpoints/scpo/round' # <~~ MANUAL CHANGE HERE!!
     args.num_episodes = 20
 
-    SAVE_PATH = './eval_results' # 项目主目录下
+    SAVE_PATH = './eval_results/scpo/round_4' # 项目主目录下
     
     with Progress(transient=False) as progress:
         progress.console.log(
@@ -239,7 +239,7 @@ if __name__ == '__main__':
         should_render = args.render
 
         root = os.path.abspath(root)
-        algo_name = root.split('/')[-2] # ippo/inter
+        algo_name = root.split('/')[-2] #TODO # ippo/inter
 
         # == Get Checkpoints ==
         checkpoint_infos = get_checkpoint_infos(root)

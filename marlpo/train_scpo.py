@@ -20,12 +20,12 @@ TEST = True # <~~ Default TEST mod here! Don't comment out this line!
             # Will be True once anywhere (code/command) appears True!
 TEST = False # <~~ Comment/Uncomment to use TEST/Training mod here! 
 
-SCENE = "intersection" # <~~ Change env name here!
+SCENE = "roundabout" # <~~ Change env name here!
 # it will be automaticlly converted to env class
-# intersection roundabout
+# intersection 
 
 
-seeds = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+SEEDS = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
 # SEEDS = [9000, 10000, 11000, 12000]
 # SEEDS = [5000, 6000, 7000, 8000]
 # SEEDS = [5000]
@@ -38,7 +38,7 @@ NEI_DISTANCE = 40
 NUM_NEIGHBOURS = 4
 
 
-EXP_DES = "2M_lr3e-5_[ablation]_0"
+EXP_DES = "2M_lr3e-5_[main](0->1,5->1)"
 
 if __name__ == "__main__":
     # === Get & Check for Args ===
@@ -121,10 +121,10 @@ if __name__ == "__main__":
             team_clip_param=tune.grid_search([0.3]),
             idv_kl_coeff_schedule=[
                 (0, 0), 
-                (2e6, 2)
+                (2e6, 1)
             ],
             team_kl_coeff_schedule=[
-                (0, 3), 
+                (0, 5), 
                 (2e6, 1)
             ],
             # == SVO ==
@@ -132,7 +132,7 @@ if __name__ == "__main__":
             fixed_svo=math.pi/4, # svo value if use_svo
             nei_rewards_mode='mean', 
             nei_reward_if_no_nei='self',
-            nei_rewards_add_coeff=tune.grid_search([0, 0.1, 0.5, 1]), # when use_svo=False
+            nei_rewards_add_coeff=tune.grid_search([1]), # when use_svo=False
             norm_adv=True,
             # == Common ==
             old_value_loss=True,

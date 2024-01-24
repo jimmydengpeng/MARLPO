@@ -363,18 +363,18 @@ class RecorderEnv(Wrapper):
         all_own_reward = defaultdict(float)
         for _, step_reward_dict in self.user_data["own_reward"].items():
             for kkk, value in step_reward_dict.items():
-                all_own_reward[kkk] += value
+                all_own_reward[kkk] += value # 把每一步的r累加得到每个agent的return
         all_nei_reward = defaultdict(float)
         for step_reward_dict in self.user_data["nei_reward"].values():
             for kkk, value in step_reward_dict.items():
-                all_nei_reward[kkk] += value
+                all_nei_reward[kkk] += value # 类似得到每个agent的邻居return
         svos = []
         svo_rewards = []
         for kkk, own_reward in all_own_reward.items():
             nei_reward = all_nei_reward[kkk]
             alpha = np.rad2deg(math.atan2(nei_reward, own_reward))
             multiplier = norm(nei_reward, own_reward)
-            svo = min(max(0, alpha), 90)
+            svo = min(max(0, alpha), 90) # 截取alpha到[0, 90]范围内
             svos.append(svo)
             svo_rewards.append(multiplier * math.cos(np.deg2rad(svo) - np.deg2rad(alpha)))
         ret["svo_estimate_deg_mean"] = np.mean(svos)

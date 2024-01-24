@@ -1,7 +1,12 @@
-from ray.rllib.evaluation.postprocessing import Postprocessing
+import gym
+import numpy as np
+
+from ray.rllib.algorithms.ppo.ppo import PPO, PPOConfig
+from ray.rllib.algorithms.ppo.ppo_torch_policy import PPOTorchPolicy
+from ray.rllib.evaluation.postprocessing import compute_advantages, Postprocessing
 from ray.rllib.policy.policy import PolicySpec
 from ray.rllib.policy.sample_batch import SampleBatch
-from ray.rllib.utils.annotations import override
+from ray.rllib.utils.annotations import ExperimentalAPI, override
 from ray.rllib.utils.framework import try_import_torch
 from ray.rllib.utils.sgd import standardized
 from ray.rllib.utils.torch_utils import (
@@ -9,65 +14,63 @@ from ray.rllib.utils.torch_utils import (
     sequence_mask,
     warn_if_infinite_kl_divergence,
 )
-from .algo_ippo import IPPOConfig, IPPOPolicy, IPPOTrainer
+
+from algo.algo_ippo import IPPOConfig, IPPOPolicy, IPPOTrainer
+from algo.utils import add_neighbour_rewards, orthogonal_initializer, _compute_advantage
+
 from utils.debug import get_logger
 logger = get_logger()
 
 torch, nn = try_import_torch()
 
 
+ORIGINAL_REWARDS = "original_rewards"
+NEI_REWARDS = "nei_rewards"
+SVO = 'svo'
+NEXT_VF_PREDS = 'next_vf_preds'
+HAS_NEIGHBOURS = 'has_neighbours'
+ATTENTION_MAXTRIX = 'attention_maxtrix'
+
+NEI_REWARDS = "nei_rewards"
+NEI_VALUES = "nei_values"
+NEI_ADVANTAGE = "nei_advantage"
+NEI_TARGET = "nei_target"
+
+
+NEI_REWARDS_MODE = 'nei_rewards_mode'
+
+
 class IPPORSConfig(IPPOConfig):
     def __init__(self, algo_class=None):
-        """Initializes a PPOConfig instance."""
         super().__init__(algo_class=algo_class or IPPORSTrainer)
-        # Two important updates
+        self.phi = 1
+        # common
+        self.num_neighbours = 4
 
 
 class IPPORSPolicy(IPPOPolicy):
 
-    @override(IPPOPolicy)
+    @override(PPOTorchPolicy)
     def postprocess_trajectory(
         self, sample_batch, other_agent_batches=None, episode=None
     ):
-        '''Args:
-            sample_batch: Dict[agent_id, Tuple['default_policy', Policy, SampleBatch]]
-        '''
-        msg = {}
-        msg['sample_batch'] = sample_batch
-
         with torch.no_grad():
             sample_batch[ORIGINAL_REWARDS] = sample_batch[SampleBatch.REWARDS].copy()
             sample_batch[NEI_REWARDS] = sample_batch[SampleBatch.REWARDS].copy() # for init ppo
-            # sample_batch[TEAM_REWARDS] = sample_batch[SampleBatch.REWARDS].copy() # for init ppo
-            # sample_batch[NEI_VALUES] = self.model.get_nei_value().cpu().detach().numpy().astype(np.float32)
 
             if episode: # filter _initialize_loss_from_dummy_batch()
-                msg['*'] = '*'
-                msg['agent id'] = f'agent{sample_batch[SampleBatch.AGENT_INDEX][0]}'
-                # msg['agent id last'] = f'agent{sample_batch[SampleBatch.AGENT_INDEX][-1]}'
-                # print('*'*30)
-                # print('t:', sample_batch['t'][:3])
-                # print('agent_index:', sample_batch['agent_index'][:3])
-                # print('actions:', sample_batch['actions'][:3])
-                # print('rewards:', sample_batch['rewards'][:3])
-                # print('nei rewards:', sample_batch[NEI_REWARDS][:3])
-                # print('infos:', sample_batch['infos'][:3])
-                # print('#'*30)
-                # == 1. add neighbour rewards ==
+                # 1. add neighbour rewards
                 sample_batch = add_neighbour_rewards(self.config, sample_batch)
 
-                # == 2. compute team rewards ==
+                # 2. compute social rewards by replacing raw rewards from env 
                 nei_r_coeff = self.config.get('nei_rewards_add_coeff', 1)
-                sample_batch[TEAM_REWARDS] = sample_batch[ORIGINAL_REWARDS] + nei_r_coeff * sample_batch[NEI_REWARDS] 
+                sample_batch[SampleBatch.REWARDS] = sample_batch[ORIGINAL_REWARDS] + nei_r_coeff * sample_batch[NEI_REWARDS] 
 
             if sample_batch[SampleBatch.DONES][-1]:
-                last_r = last_nei_r = last_team_r = 0.0
+                last_r = 0.0
             else:
                 last_r = sample_batch[SampleBatch.VF_PREDS][-1]
-                # last_nei_r = sample_batch[NEI_VALUES][-1]
-                last_team_r = sample_batch[TEAM_VALUES][-1]
 
-            
             compute_advantages(
                 sample_batch,
                 last_r,
@@ -77,23 +80,10 @@ class IPPORSPolicy(IPPOPolicy):
                 use_critic=self.config.get("use_critic", True)
             )
 
-            sample_batch = _compute_advantage(
-                sample_batch, 
-                (TEAM_REWARDS, TEAM_VALUES, TEAM_ADVANTAGES, TEAM_VALUE_TARGETS),
-                last_team_r, 
-                self.config["gamma"], 
-                self.config["lambda"],
-            )
-
-            # == 记录 rollout 时的 V 值 == 
-            # vpred_t = np.concatenate([sample_batch[SampleBatch.VF_PREDS], np.array([last_r])])
-            # sample_batch[NEXT_VF_PREDS] = vpred_t[1:].copy()
-
         return sample_batch
 
 
     def loss(self, model, dist_class, train_batch):
-
         logits, state = model(train_batch)
         curr_action_dist = dist_class(logits, model)
 
@@ -124,7 +114,7 @@ class IPPORSPolicy(IPPOPolicy):
         )
 
         # Only calculate kl loss if necessary (kl-coeff > 0.0).
-        if self.config["kl_coeff"] > 0.0:
+        if self.config["kl_coeff"] > 0.0: # 约束新旧策略更新, 默认为0.2 
             action_kl = prev_action_dist.kl(curr_action_dist)
             mean_kl_loss = reduce_mean_valid(action_kl)
             warn_if_infinite_kl_divergence(self, mean_kl_loss)
@@ -205,4 +195,4 @@ class IPPORSTrainer(IPPOTrainer):
 
 
 
-__all__ = ['IPPORSConfig', 'IPPORSTrainer']
+__all__ = ['IPPOConfig', 'IPPOTrainer']

@@ -23,12 +23,12 @@ SCENE = "roundabout" #, [, 'tollgate', 'parkinglot'] # <~~ Change env name here!
 # intersection roundabout
 
 # SEEDS = [5000]
-SEEDS = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
-# SEEDS = [7000, 8000, 9000, 10000, 11000, 12000]
+# SEEDS = [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000]
+SEEDS = [9000, 10000, 11000, 12000]
 
 NUM_AGENTS = None # <~~ set to None for env's default `num_agents`
 
-EXP_DES = "2M_lr=3e-5[Mac]2"
+EXP_DES = "2M_lr=3e-5[Mac]3"
 
 
 if __name__ == "__main__":

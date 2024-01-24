@@ -33,10 +33,10 @@ ATTENTIVE_ALL_NEI_REWARD = 'attentive_all_nei_reward' # ─╯
 def add_neighbour_rewards(
     config: dict,
     sample_batch: SampleBatch,
-) -> Tuple[List, List]:
+) -> SampleBatch:
     '''Args:
-        config: a Policy Config.
-        sample_batch: sample_batch to be added to.
+    config: a Policy Config.
+    sample_batch: sample_batch to be added to.
     '''
     infos = sample_batch[SampleBatch.INFOS]
     nei_rewards = []
@@ -136,8 +136,8 @@ def orthogonal_initializer(gain=1.0):
     return orthogonal_init
 
 
-def _compute_advantage(rollout: SampleBatch, rvat, last_r: float, gamma: float = 0.9, lambda_: float = 1.0):
-    REWARD, VALUE, ADVANTAGE, TARGET = rvat
+def _compute_advantage(rollout: SampleBatch, rvat_keys, last_r: float, gamma: float = 0.9, lambda_: float = 1.0):
+    REWARD, VALUE, ADVANTAGE, TARGET = rvat_keys
     vpred_t = np.concatenate([rollout[VALUE], np.array([last_r])])
     delta_t = (rollout[REWARD] + gamma * vpred_t[1:] - vpred_t[:-1])
     rollout[ADVANTAGE] = discount_cumsum(delta_t, gamma * lambda_)

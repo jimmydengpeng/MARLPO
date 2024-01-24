@@ -132,7 +132,7 @@ class IPPOPolicy(PPOTorchPolicy):
 
         value_fn_out = model.value_function()
 
-        # === 使用IPPO中的 Value Loss
+        # 使用IPPO中的 Value Loss
         if self.config["old_value_loss"]:
             current_vf = value_fn_out
             prev_vf = train_batch[SampleBatch.VF_PREDS]
@@ -142,6 +142,7 @@ class IPPOPolicy(PPOTorchPolicy):
             )
             vf_loss2 = torch.pow(vf_clipped - train_batch[Postprocessing.VALUE_TARGETS], 2.0)
             vf_loss_clipped = torch.max(vf_loss1, vf_loss2)
+        # 使用IPPO中的 Value Loss
         else:
             vf_loss = torch.pow(value_fn_out - train_batch[Postprocessing.VALUE_TARGETS], 2.0)
             vf_loss_clipped = torch.clamp(vf_loss, 0, self.config["vf_clip_param"])

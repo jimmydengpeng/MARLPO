@@ -136,8 +136,8 @@ class SCPOModel(TorchModelV2, nn.Module):
 
         self.view_requirements[NEI_REWARDS] = ViewRequirement()
         self.view_requirements[NEI_VALUES] = ViewRequirement()
-        self.view_requirements[NEI_TARGET] = ViewRequirement()
-        self.view_requirements[NEI_ADVANTAGE] = ViewRequirement()
+        # self.view_requirements[NEI_TARGET] = ViewRequirement()
+        # self.view_requirements[NEI_ADVANTAGE] = ViewRequirement()
 
         self.view_requirements[TEAM_REWARDS] = ViewRequirement()
         self.view_requirements[TEAM_VALUES] = ViewRequirement()
@@ -337,6 +337,7 @@ class SCPOPolicy(SCPOKLCoeffSchedule, PPOTorchPolicy):
                 last_team_r = sample_batch[TEAM_VALUES][-1]
 
             
+            # RLlib's compute_advantages() only computes raw individual environmental rewards!
             compute_advantages(
                 sample_batch,
                 last_r,
@@ -346,6 +347,7 @@ class SCPOPolicy(SCPOKLCoeffSchedule, PPOTorchPolicy):
                 use_critic=self.config.get("use_critic", True)
             )
 
+            # compute team advantage
             sample_batch = _compute_advantage(
                 sample_batch, 
                 (TEAM_REWARDS, TEAM_VALUES, TEAM_ADVANTAGES, TEAM_VALUE_TARGETS),

@@ -37,6 +37,7 @@ def get_other_training_configs(
     if test:
         exp_name = "TEST"
         num_rollout_workers = 0
+        num_cpus_per_worker = 1
         seeds = [5000]
         num_agents = [2]
     else:

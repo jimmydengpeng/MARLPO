@@ -131,6 +131,8 @@ def get_ckp() -> Tuple:
     copo_inter2='exp_CoPO/CoPO_Inter_30agents_1M/CoPOTrainer_Intersection_16951_00000_0_start_seed=7000_2023-09-26_00-39-25/checkpoint_000977'
 
     scpo_inter_88 = 'exp_SCPO/BEST_Backup/AIBOY/SCPOTrainer_Intersection_99ed5_00007_7_num_agents=30,start_seed=5000,0=1000000.0000,1=1,1=5,0=800000.0000,1=0.5000_2023-09-23_01-08-07/checkpoint_001450' # 88%
+    
+    scpo_inter_89 = 'exp_SCPO/SUCCESS/SCPO_Inter_30agents_2M_(8workers)_2e6_8seeds/SCPOTrainer_Intersection_f9646_00001_1_num_agents=30,start_seed=5000,1=2,team_clip_param=0.3000,1=3,1=1_2023-10-15_01-13-20/checkpoint_001954'
 
     ippo_inter = 'eval_checkpoints/ippo/inter/IPPOTrainer_Intersection_1de81_00002_2_start_seed=7000,lr=0.0000_2023-10-14_20-06-33/checkpoint_001941'
 
@@ -155,7 +157,11 @@ def get_ckp() -> Tuple:
 
     scpo_round = 'eval_checkpoints/scpo/round/SCPOTrainer_Roundabout_c407d_00000_0_start_seed=8000,0=2000000.0000,1=1,nei_rewards_add_coeff=1,team_clip_param=0.3000,1=4,0=20000_2023-11-24_17-13-43/checkpoint_000858'
 
-    checkpoint_path = scpo_inter_88
+    ippo_rs_inter = 'exp_IPPO-RS/IPPO-RS_Inter_30agents_8workers_phi=1/IPPORSTrainer_Intersection_cbe55_00002_2_start_seed=7000,lr=0.0000_2024-01-04_22-23-14/checkpoint_001954' # 91%
+    ippo_rs_inter_2 = 'exp_IPPO-RS/IPPO-RS_Inter_30agents_8workers_phi=1/IPPORSTrainer_Intersection_cbe55_00000_0_start_seed=5000,lr=0.0000_2024-01-04_22-23-14/checkpoint_001954' # 40%
+
+    # checkpoint_path = scpo_inter_88
+    # checkpoint_path = scpo_inter_89
     # checkpoint_path = ippo_inter
     # checkpoint_path = ippo_round
     # checkpoint_path = ccppo_concat_inter
@@ -167,6 +173,7 @@ def get_ckp() -> Tuple:
     # checkpoint_path = copo_inter
     # checkpoint_path = copo_round
     # checkpoint_path = scpo_round
+    checkpoint_path = ippo_rs_inter_2
 
     if 'ippo' in checkpoint_path.lower():
         algo_name = 'ippo'
@@ -215,11 +222,15 @@ if __name__ == "__main__":
 
     # SCENE = "intersection"
     # SCENE = "roundabout"
-    NUM_EPISODES_TOTAL = 1
+    NUM_EPISODES_TOTAL = 20
     # RENDER = False
     RENDER = True
-    RECORD_TRAJ = True
-
+    # RECORD_TRAJ = True
+    RECORD_TRAJ = False
+    # RECORD_RENDER_IMAGE = True
+    RECORD_RENDER_IMAGE = False
+    if RECORD_RENDER_IMAGE:
+        import pygame
 
 
     ckp, algo_name, scene, should_wrap_copo = get_ckp() # only copo should be wrapped
@@ -274,6 +285,7 @@ if __name__ == "__main__":
     callbacks.on_episode_start()
 
     stop_render = False
+    cur_step = 0
     cur_epi = 0
 
     episodic_mean_rews = []
@@ -320,6 +332,7 @@ if __name__ == "__main__":
 
         obs, r, tm, tc, infos = env.step(actions)
         callbacks.on_episode_step(infos=infos)
+        cur_step += 1
 
         frame.append(get_single_frame(env, tm, infos))
 
@@ -395,15 +408,49 @@ if __name__ == "__main__":
             # input()
 
             
-            env.render(
-                text=None,
-                num_stack=15, # default 15
-                # current_track_vehicle = v,
-                mode="top_down", 
-                # draw_target_vehicle_trajectory=True,
-                film_size=get_screen_sizes(),
-                screen_size=get_screen_sizes(),
-            )
+            if not RECORD_RENDER_IMAGE:
+                ret = env.render(
+                    text=None,
+                    num_stack=15, # default 15
+                    # current_track_vehicle = v,
+                    mode="top_down", 
+                    # draw_target_vehicle_trajectory=True,
+                    film_size=get_screen_sizes(),
+                    screen_size=get_screen_sizes(),
+                )
+
+            else:
+                if scene == 'inter':
+                    screen_size = (3000, 3000)
+                    film_size = screen_size
+                    crop_coeff = 0.45 # remain how many size of width/height
+                elif scene == 'round':
+                    screen_size = (3000, 3000)
+                    film_size = screen_size
+                    crop_coeff = 0.5 # remain how many size of width/height
+                crop_rect = (
+                    screen_size[0]*(1-crop_coeff)/2,
+                    screen_size[1]*(1-crop_coeff)/2,
+                    screen_size[0]*crop_coeff,
+                    screen_size[1]*crop_coeff
+                )
+                
+                ret = env.render(
+                    text=None,
+                    num_stack=50, # default 15
+                    # current_track_vehicle = v,
+                    mode="top_down", 
+                    # draw_target_vehicle_trajectory=True,
+                    film_size=film_size,
+                    screen_size=screen_size,
+                    draw_future_traj=True,
+                    road_color=(35, 35, 35),
+                )
+
+                if cur_step > 100 and cur_step < 1000:
+                    pygame.image.save(ret.convert_alpha().subsurface(pygame.Rect(crop_rect)), f'trajectories/render/{scene}/{algo_name}_step{cur_step}.png')
+                # if cur_step == 1400: exit()
+
 
     # env.close()
     print_final_summary((

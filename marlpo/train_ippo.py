@@ -19,7 +19,7 @@ ALGO_NAME = "IPPO"
 TEST = True # <~~ Default TEST mod here! Don't comment out this line!
             # Also can be assigned in terminal command args by "--test"
             # Will be True once anywhere (code/command) appears True!
-TEST = False # <~~ Comment/Uncomment to use TEST/Training mod here! 
+# TEST = False # <~~ Comment/Uncomment to use TEST/Training mod here! 
 
 SCENE = "intersection" # <~~ Change env name here!
 # it will be automaticlly converted to env class
@@ -91,8 +91,8 @@ if __name__ == "__main__":
         .training(
             train_batch_size=1024,
             gamma=0.99,
-            lr=3e-4,
-            # lr=tune.grid_search([3e-5]),
+            # lr=3e-4,
+            lr=tune.grid_search([3e-5]),
             sgd_minibatch_size=512,
             num_sgd_iter=5,
             lambda_=0.95,
@@ -108,7 +108,8 @@ if __name__ == "__main__":
         )
         .update_from_dict(dict(
             norm_adv=False,
-            vf_clip_param=tune.grid_search([10, 50, 100, 1000])
+            # vf_clip_param=tune.grid_search([10, 50, 100, 1000])
+            vf_clip_param=100,
         ))
     )
 

@@ -132,7 +132,9 @@ def get_ckp() -> Tuple:
 
     scpo_inter_88 = 'exp_SCPO/BEST_Backup/AIBOY/SCPOTrainer_Intersection_99ed5_00007_7_num_agents=30,start_seed=5000,0=1000000.0000,1=1,1=5,0=800000.0000,1=0.5000_2023-09-23_01-08-07/checkpoint_001450' # 88%
     
-    scpo_inter_89 = 'exp_SCPO/SUCCESS/SCPO_Inter_30agents_2M_(8workers)_2e6_8seeds/SCPOTrainer_Intersection_f9646_00001_1_num_agents=30,start_seed=5000,1=2,team_clip_param=0.3000,1=3,1=1_2023-10-15_01-13-20/checkpoint_001954'
+    scpo_inter_85 = 'exp_SCPO/SUCCESS/SCPO_Inter_30agents_2M_(8workers)_2e6_8seeds/SCPOTrainer_Intersection_f9646_00001_1_num_agents=30,start_seed=5000,1=2,team_clip_param=0.3000,1=3,1=1_2023-10-15_01-13-20/checkpoint_001954'
+
+    scpo_inter_86 = 'exp_SCPO/SUCCESS/SCPO_Inter_30agents_2M_(8workers)_2e6_8seeds/SCPOTrainer_Intersection_f9646_00001_1_num_agents=30,start_seed=5000,1=2,team_clip_param=0.3000,1=3,1=1_2023-10-15_01-13-20/checkpoint_001950'
 
     ippo_inter = 'eval_checkpoints/ippo/inter/IPPOTrainer_Intersection_1de81_00002_2_start_seed=7000,lr=0.0000_2023-10-14_20-06-33/checkpoint_001941'
 
@@ -157,11 +159,16 @@ def get_ckp() -> Tuple:
 
     scpo_round = 'eval_checkpoints/scpo/round/SCPOTrainer_Roundabout_c407d_00000_0_start_seed=8000,0=2000000.0000,1=1,nei_rewards_add_coeff=1,team_clip_param=0.3000,1=4,0=20000_2023-11-24_17-13-43/checkpoint_000858'
 
+    scpo_round_86 = 'exp_SCPO/SUCCESS/SCPO_Round_40agents_8workers_8seeds_2M_lr=3e-5[new]/SCPOTrainer_Roundabout_c407d_00000_0_start_seed=8000,0=2000000.0000,1=1,nei_rewards_add_coeff=1,team_clip_param=0.3000,1=4,0=20000_2023-11-24_17-13-43/checkpoint_000858'
+
     ippo_rs_inter = 'exp_IPPO-RS/IPPO-RS_Inter_30agents_8workers_phi=1/IPPORSTrainer_Intersection_cbe55_00002_2_start_seed=7000,lr=0.0000_2024-01-04_22-23-14/checkpoint_001954' # 91%
     ippo_rs_inter_2 = 'exp_IPPO-RS/IPPO-RS_Inter_30agents_8workers_phi=1/IPPORSTrainer_Intersection_cbe55_00000_0_start_seed=5000,lr=0.0000_2024-01-04_22-23-14/checkpoint_001954' # 40%
 
     # checkpoint_path = scpo_inter_88
-    # checkpoint_path = scpo_inter_89
+    checkpoint_path = scpo_inter_85
+    checkpoint_path = scpo_inter_86
+    # checkpoint_path = scpo_round
+    # checkpoint_path = scpo_round_86
     # checkpoint_path = ippo_inter
     # checkpoint_path = ippo_round
     # checkpoint_path = ccppo_concat_inter
@@ -172,8 +179,7 @@ def get_ckp() -> Tuple:
     # checkpoint_path = ccppo_round
     # checkpoint_path = copo_inter
     # checkpoint_path = copo_round
-    # checkpoint_path = scpo_round
-    checkpoint_path = ippo_rs_inter_2
+    # checkpoint_path = ippo_rs_inter_2
 
     if 'ippo' in checkpoint_path.lower():
         algo_name = 'ippo'
@@ -415,8 +421,10 @@ if __name__ == "__main__":
                     # current_track_vehicle = v,
                     mode="top_down", 
                     # draw_target_vehicle_trajectory=True,
-                    film_size=get_screen_sizes(),
-                    screen_size=get_screen_sizes(),
+                    # film_size=get_screen_sizes(),
+                    film_size=(1100, 1100),
+                    # screen_size=get_screen_sizes(),
+                    screen_size=(1000, 1000),
                 )
 
             else:

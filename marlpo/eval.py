@@ -230,13 +230,14 @@ if __name__ == '__main__':
     # args.root = 'exp_SCPO/ABLATION/SCPO_Inter_30agents_8workers_2M_lr=3e-5_[ablation][sl]_(2->2,0->0)'
     # args.root = 'exp_SCPO/ABLATION/SCPO_Inter_30agents_8workers_2M_lr=3e-5_[ablation][sl]_(2->2,3->3)'
     # args.root = './eval_checkpoints/copo/round'
-    # args.root = './eval_checkpoints/scpo/round'
-    args.root = 'exp_CoPO/CoPO_Round_40agents_8workers_2M_lr=3e-5[Mac]3'
+    args.root = './eval_checkpoints/scpo/round'
+    # args.root = 'exp_CoPO/CoPO_Round_40agents_8workers_2M_lr=3e-5[Mac]3'
 
     args.num_episodes = 10 # default 20
 
     # SAVE_PATH = './eval_results/scpo/round_' # 项目主目录下
-    SAVE_PATH = './eval_results/main/copo'
+    # SAVE_PATH = './eval_results/main/copo'
+    SAVE_PATH = './eval_results/main/copo_test'
     # SAVE_PATH = './eval_results/ablation/ippo-rs/inter' # 项目主目录下
     # SAVE_PATH = './eval_results/ablation/ippo-dc/inter' # 项目主目录下
     # SAVE_PATH = './eval_results/ablation/scpo-no-cpo/inter' # 项目主目录下
